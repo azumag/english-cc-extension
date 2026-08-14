@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>English CC</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">Twitch via OBS</p>
+      <h1>English CC</h1>
+    </div>
+    <span id="overallStatus" class="status status-idle">停止中</span>
+  </header>
+
+  <main>
+    <section class="card status-grid" aria-label="接続状態">
+      <div><span>Chrome</span><strong id="chromeStatus">確認中</strong></div>
+      <div><span>マイク</span><strong id="microphoneStatus">未許可</strong></div>
+      <div><span>音声認識</span><strong id="recognitionStatus">停止</strong></div>
+      <div><span>翻訳</span><strong id="translationStatus">未準備</strong></div>
+      <div><span>OBS</span><strong id="obsStatus">未接続</strong></div>
+      <div><span>配信</span><strong id="streamStatus">不明</strong></div>
+    </section>
+
+    <section class="card">
+      <h2>入力とOBS</h2>
+      <label>
+        配信用マイク
+        <span class="inline-field">
+          <select id="microphoneSelect"></select>
+          <button id="refreshMicrophonesButton" type="button" class="secondary">更新・許可</button>
+        </span>
+      </label>
+      <div class="two-columns">
+        <label>
+          OBSホスト
+          <select id="obsHostInput">
+            <option value="127.0.0.1">127.0.0.1</option>
+            <option value="localhost">localhost</option>
+          </select>
+        </label>
+        <label>
+          OBSポート
+          <input id="obsPortInput" type="number" min="1" max="65535" value="4455">
+        </label>
+      </div>
+      <label>
+        OBS WebSocketパスワード
+        <input id="obsPasswordInput" type="password" autocomplete="off" placeholder="Chrome再起動後は再入力">
+      </label>
+      <label>
+        OBS上のマイク入力名（任意）
+        <input id="obsMicrophoneInputName" type="text" placeholder="例: マイク / AUX">
+        <small>設定した場合、OBSでミュート中は字幕を送りません。</small>
+      </label>
+      <div class="button-row">
+        <button id="connectObsButton" type="button" class="secondary">OBSへ接続</button>
+        <button id="testCaptionButton" type="button" class="secondary" disabled>テスト字幕</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>字幕設定</h2>
+      <div class="two-columns">
+        <label>
+          最大待機数
+          <input id="maxPendingInput" type="number" min="1" max="10" value="2">
+        </label>
+        <label>
+          最大待機時間（ms）
+          <input id="maxAgeInput" type="number" min="500" max="30000" step="100" value="5000">
+        </label>
+      </div>
+      <label>
+        1字幕の最大文字数（暫定）
+        <input id="maxCaptionCharsInput" type="number" min="20" max="200" value="72">
+      </label>
+      <label>
+        固有名詞置換（JSON）
+        <textarea id="replacementsInput" rows="4" spellcheck="false" placeholder='{"Palantia":"Palantir"}'></textarea>
+      </label>
+      <button id="saveSettingsButton" type="button" class="secondary">設定を保存</button>
+    </section>
+
+    <section class="card preview-card">
+      <h2>認識プレビュー</h2>
+      <p class="preview-label">途中認識</p>
+      <p id="interimPreview" class="preview muted">—</p>
+      <p class="preview-label">確定した日本語</p>
+      <p id="japanesePreview" class="preview">—</p>
+      <p class="preview-label">送出候補の英語</p>
+      <p id="englishPreview" class="preview english">—</p>
+    </section>
+
+    <section class="primary-controls">
+      <button id="startButton" type="button" class="primary">英語CCを開始</button>
+      <button id="stopButton" type="button" class="danger" disabled>停止</button>
+    </section>
+
+    <section class="card">
+      <div class="section-title-row">
+        <h2>イベント</h2>
+        <button id="clearLogButton" type="button" class="text-button">消去</button>
+      </div>
+      <ol id="eventLog" class="event-log" aria-live="polite"></ol>
+    </section>
+
+    <p class="privacy-note">
+      通常のChrome音声認識では、音声が認識サービスへ送信される場合があります。翻訳はChrome内蔵Translator APIを使用し、字幕本文は既定で保存しません。
+    </p>
+  </main>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
