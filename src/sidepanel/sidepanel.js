@@ -8,6 +8,15 @@ import { RingLogger } from "../shared/logger.js";
 import { normalizeSettings } from "../shared/contracts.js";
 import { loadObsPassword, loadSettings, saveObsPassword, saveSettings } from "../settings/settings-store.js";
 
+// Matches the fatal errors SpeechRecognizer stops retrying on
+// (see src/speech/speech-recognizer.js FATAL_ERRORS) with a Japanese
+// message telling the user what manual step unblocks a restart.
+const FATAL_ERROR_LABELS = {
+  "not-allowed": "マイク権限を許可してから再開してください",
+  "service-not-allowed": "音声認識サービスが許可されていません。設定を確認してから再開してください",
+  "language-not-supported": "選択した言語は音声認識でサポートされていません",
+};
+
 const elements = Object.fromEntries([
   "overallStatus", "chromeStatus", "microphoneStatus", "recognitionStatus", "translationStatus", "obsStatus", "streamStatus",
   "microphoneSelect", "refreshMicrophonesButton", "obsHostInput", "obsPortInput", "obsPasswordInput", "obsMicrophoneInputName",
@@ -134,9 +143,16 @@ function createRecognizer(settings) {
         stopped: "停止",
         error: "エラー",
         "fallback-default-microphone": "既定マイクへ切替",
+        "fatal-error": FATAL_ERROR_LABELS[status.error] ?? "停止（要再操作）",
       };
       setText("recognitionStatus", labels[status.state] ?? status.state);
       if (status.state === "recognizing") setText("microphoneStatus", "許可済み");
+      if (status.state === "fatal-error") {
+        state.running = false;
+        elements.startButton.disabled = false;
+        elements.stopButton.disabled = true;
+        setOverallStatus("error", labels["fatal-error"]);
+      }
     },
     onError: (error) => logger.error(error.message),
   });

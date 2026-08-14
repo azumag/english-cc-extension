@@ -2,6 +2,13 @@ function recognitionConstructor(globalScope) {
   return globalScope.SpeechRecognition ?? globalScope.webkitSpeechRecognition ?? null;
 }
 
+// Errors the Web Speech API defines as unrecoverable without user action
+// (permission grant, browser settings, or picking a supported language).
+// Retrying start() after these fires the same rejection forever, so we
+// stop instead of scheduling another restart.
+// https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognitionError/error
+const FATAL_ERRORS = new Set(["not-allowed", "service-not-allowed", "language-not-supported"]);
+
 export class SpeechRecognizer {
   constructor({
     lang = "ja-JP",
@@ -26,6 +33,7 @@ export class SpeechRecognizer {
     this.restartTimer = null;
     this.restartDelayMs = 250;
     this.inputMode = "unknown";
+    this.fatalError = null;
   }
 
   probe() {
@@ -63,6 +71,7 @@ export class SpeechRecognizer {
 
     this.desired = true;
     this.restartDelayMs = 250;
+    this.fatalError = null;
     try {
       this.stream = await this.mediaDevices.getUserMedia({
         audio: {
@@ -104,12 +113,27 @@ export class SpeechRecognizer {
     this.recognition.onerror = (event) => {
       const error = String(event.error ?? "unknown");
       if (!this.desired && error === "aborted") return;
+      if (FATAL_ERRORS.has(error)) {
+        this.fatalError = error;
+        this.desired = false;
+        clearTimeout(this.restartTimer);
+        this.restartTimer = null;
+        this.stream?.getTracks().forEach((track) => track.stop());
+        this.stream = null;
+      }
       this.onError(new Error(`Speech recognition error: ${error}`));
-      this.onState({ state: "error", error });
+      this.onState({ state: this.fatalError ? "fatal-error" : "error", error });
     };
 
     this.recognition.onend = () => {
       this.active = false;
+      if (this.fatalError) {
+        // onerror already released the mic/timer and flipped desired off;
+        // report the fatal state again instead of falling through to the
+        // generic "stopped" status so the UI keeps its permission prompt.
+        this.onState({ state: "fatal-error", error: this.fatalError });
+        return;
+      }
       if (!this.desired) {
         this.onState({ state: "stopped" });
         return;
@@ -131,6 +155,7 @@ export class SpeechRecognizer {
 
   async stop() {
     this.desired = false;
+    this.fatalError = null;
     clearTimeout(this.restartTimer);
     this.restartTimer = null;
     if (this.recognition) {
