@@ -4,6 +4,7 @@ import { ObsCaptionOutput } from "../obs/obs-caption-output.js";
 import { ObsWebSocketClient, buildObsWebSocketUrl } from "../obs/obs-websocket-client.js";
 import { SpeechRecognizer } from "../speech/speech-recognizer.js";
 import { ChromeTranslator } from "../translation/chrome-translator.js";
+import { targetAllowsCjkText, toTranslatorLanguageTag } from "../translation/language-tags.js";
 import { RingLogger } from "../shared/logger.js";
 import { normalizeSettings } from "../shared/contracts.js";
 import { loadObsPassword, loadSettings, saveObsPassword, saveSettings } from "../settings/settings-store.js";
@@ -14,12 +15,13 @@ import { loadObsPassword, loadSettings, saveObsPassword, saveSettings } from "..
 const FATAL_ERROR_LABELS = {
   "not-allowed": "マイク権限を許可してから再開してください",
   "service-not-allowed": "音声認識サービスが許可されていません。設定を確認してから再開してください",
-  "language-not-supported": "選択した言語は音声認識でサポートされていません",
+  "language-not-supported": "選択した認識言語は音声認識でサポートされていません",
 };
 
 const elements = Object.fromEntries([
   "overallStatus", "chromeStatus", "microphoneStatus", "recognitionStatus", "translationStatus", "obsStatus", "streamStatus",
-  "microphoneSelect", "refreshMicrophonesButton", "obsHostInput", "obsPortInput", "obsPasswordInput", "obsMicrophoneInputName",
+  "microphoneSelect", "refreshMicrophonesButton", "recognitionLanguageInput", "targetLanguageInput",
+  "obsHostInput", "obsPortInput", "obsPasswordInput", "obsMicrophoneInputName",
   "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "replacementsInput",
   "saveSettingsButton", "interimPreview", "japanesePreview", "englishPreview", "startButton", "stopButton", "clearLogButton", "eventLog",
 ].map((id) => [id, document.getElementById(id)]));
@@ -70,8 +72,8 @@ function parseReplacements() {
 
 function readFormSettings() {
   return normalizeSettings({
-    recognitionLanguage: "ja-JP",
-    targetLanguage: "en",
+    recognitionLanguage: elements.recognitionLanguageInput.value.trim(),
+    targetLanguage: elements.targetLanguageInput.value.trim(),
     microphoneDeviceId: elements.microphoneSelect.value,
     obsHost: elements.obsHostInput.value,
     obsPort: Number(elements.obsPortInput.value),
@@ -85,6 +87,8 @@ function readFormSettings() {
 }
 
 function populateSettings(settings) {
+  elements.recognitionLanguageInput.value = settings.recognitionLanguage;
+  elements.targetLanguageInput.value = settings.targetLanguage;
   elements.obsHostInput.value = settings.obsHost;
   elements.obsPortInput.value = settings.obsPort;
   elements.obsMicrophoneInputName.value = settings.obsMicrophoneInputName;
@@ -107,8 +111,8 @@ async function persistSettings() {
 function createTranslator(settings) {
   state.translator?.destroy();
   state.translator = new ChromeTranslator({
-    sourceLanguage: "ja",
-    targetLanguage: settings.targetLanguage,
+    sourceLanguage: toTranslatorLanguageTag(settings.recognitionLanguage),
+    targetLanguage: toTranslatorLanguageTag(settings.targetLanguage),
     onStatus: (status) => {
       if (status.state === "downloading") {
         setText("translationStatus", `ダウンロード ${Math.round((status.progress ?? 0) * 100)}%`);
@@ -164,6 +168,7 @@ function createCaptionPipeline(settings) {
     maxAgeMs: settings.maxAgeMs,
     maxCaptionChars: settings.maxCaptionChars,
     replacements: settings.replacements,
+    allowCjkText: targetAllowsCjkText(settings.targetLanguage),
   });
 
   state.queue?.dispose();
@@ -180,7 +185,7 @@ function createCaptionPipeline(settings) {
       elements.englishPreview.textContent = translated;
       const prepared = state.policy.prepare({ text: translated, createdAt: item.createdAt });
       if (!prepared.ok) {
-        logger.warn(`英語字幕を送らず破棄しました: ${prepared.reason}`);
+        logger.warn(`翻訳字幕を送らず破棄しました: ${prepared.reason}`);
         return;
       }
 
@@ -196,7 +201,7 @@ function createCaptionPipeline(settings) {
       }
       if (sentCount === prepared.segments.length) {
         state.policy.markSent(prepared.canonicalText);
-        logger.info(`英語字幕を送信しました（${sentCount}件）`);
+        logger.info(`翻訳字幕を送信しました（${sentCount}件）`);
       }
     },
   });
@@ -284,8 +289,12 @@ async function startCaptions() {
     createRecognizer(settings);
     createCaptionPipeline(settings);
 
+    const sourceLanguage = toTranslatorLanguageTag(settings.recognitionLanguage);
+    const targetLanguage = toTranslatorLanguageTag(settings.targetLanguage);
     const availability = await state.translator.availability();
-    if (availability === "unavailable") throw new Error("日本語→英語のChrome Translator APIを利用できません");
+    if (availability === "unavailable") {
+      throw new Error(`${sourceLanguage}→${targetLanguage} のChrome Translator APIを利用できません`);
+    }
     await state.translator.initialize();
 
     state.running = true;
@@ -293,7 +302,7 @@ async function startCaptions() {
     elements.startButton.disabled = true;
     elements.stopButton.disabled = false;
     setOverallStatus("running", "送出中");
-    logger.info("英語CCを開始しました");
+    logger.info(`CCを開始しました（${settings.recognitionLanguage} → ${targetLanguage}）`);
   } catch (error) {
     state.running = false;
     setOverallStatus("error", "開始失敗");
@@ -309,13 +318,13 @@ async function stopCaptions() {
   elements.startButton.disabled = false;
   elements.stopButton.disabled = true;
   setOverallStatus("idle", "停止中");
-  logger.info("英語CCを停止しました");
+  logger.info("CCを停止しました");
 }
 
 async function sendTestCaption() {
   try {
     if (!state.output) throw new Error("先にOBSへ接続してください");
-    const result = await state.output.sendCaption("English closed captions are ready.", { bypassMicrophoneGate: true });
+    const result = await state.output.sendCaption("Closed captions are ready.", { bypassMicrophoneGate: true });
     if (!result.sent) throw new Error(`テスト字幕を送信できません: ${result.reason}`);
     logger.info("テスト字幕を送信しました");
   } catch (error) {

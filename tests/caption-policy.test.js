@@ -38,3 +38,9 @@ test("rejects expired, Japanese, and duplicate captions", () => {
   policy.markSent(prepared.canonicalText);
   assert.equal(policy.prepare({ text: "Today is sunny.", createdAt: now }).reason, "duplicate");
 });
+
+test("allows Japanese and Chinese output for CJK translation targets", () => {
+  const policy = new CaptionPolicy({ allowCjkText: true, maxCaptionChars: 50 });
+  assert.equal(policy.prepare({ text: "今日は晴れです" }).ok, true);
+  assert.equal(policy.prepare({ text: "今天天气很好" }).ok, true);
+});

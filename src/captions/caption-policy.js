@@ -76,10 +76,17 @@ export function segmentCaptionText(value, maxChars = 72) {
 }
 
 export class CaptionPolicy {
-  constructor({ maxAgeMs = 5000, maxCaptionChars = 72, replacements = {}, clock = () => Date.now() } = {}) {
+  constructor({
+    maxAgeMs = 5000,
+    maxCaptionChars = 72,
+    replacements = {},
+    allowCjkText = false,
+    clock = () => Date.now(),
+  } = {}) {
     this.maxAgeMs = maxAgeMs;
     this.maxCaptionChars = maxCaptionChars;
     this.replacements = replacements;
+    this.allowCjkText = allowCjkText;
     this.clock = clock;
     this.lastSentText = "";
   }
@@ -91,7 +98,9 @@ export class CaptionPolicy {
 
     const normalized = normalizeCaptionText(applyCaptionReplacements(text, this.replacements));
     if (!normalized) return { ok: false, reason: "empty", segments: [] };
-    if (containsJapaneseText(normalized)) return { ok: false, reason: "contains-japanese", segments: [] };
+    if (!this.allowCjkText && containsJapaneseText(normalized)) {
+      return { ok: false, reason: "contains-japanese", segments: [] };
+    }
     if (normalized === this.lastSentText) return { ok: false, reason: "duplicate", segments: [] };
 
     const segments = segmentCaptionText(normalized, this.maxCaptionChars);

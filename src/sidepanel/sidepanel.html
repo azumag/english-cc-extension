@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>English CC</title>
+  <title>Multilingual CC</title>
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
   <header>
     <div>
       <p class="eyebrow">Twitch via OBS</p>
-      <h1>English CC</h1>
+      <h1>Multilingual CC</h1>
     </div>
     <span id="overallStatus" class="status status-idle">停止中</span>
   </header>
@@ -34,6 +34,46 @@
           <button id="refreshMicrophonesButton" type="button" class="secondary">更新・許可</button>
         </span>
       </label>
+      <div class="two-columns">
+        <label>
+          認識言語
+          <input id="recognitionLanguageInput" type="text" list="recognitionLanguageOptions" placeholder="ja-JP">
+          <datalist id="recognitionLanguageOptions">
+            <option value="ja-JP">日本語</option>
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="zh-CN">中文（简体）</option>
+            <option value="zh-TW">中文（繁體）</option>
+            <option value="ko-KR">한국어</option>
+            <option value="es-ES">Español</option>
+            <option value="fr-FR">Français</option>
+            <option value="de-DE">Deutsch</option>
+            <option value="pt-BR">Português</option>
+            <option value="it-IT">Italiano</option>
+            <option value="ru-RU">Русский</option>
+            <option value="uk-UA">Українська</option>
+          </datalist>
+        </label>
+        <label>
+          翻訳先
+          <input id="targetLanguageInput" type="text" list="targetLanguageOptions" placeholder="en">
+          <datalist id="targetLanguageOptions">
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="zh">中文（简体）</option>
+            <option value="zh-Hant">中文（繁體）</option>
+            <option value="ko">한국어</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="pt">Português</option>
+            <option value="it">Italiano</option>
+            <option value="ru">Русский</option>
+            <option value="uk">Українська</option>
+          </datalist>
+        </label>
+      </div>
+      <small>認識言語はBCP 47ロケール（例: ja-JP）、翻訳先はChrome Translator APIの言語コード（例: en / fr / zh-Hant）を指定します。</small>
       <div class="two-columns">
         <label>
           OBSホスト
@@ -89,14 +129,14 @@
       <h2>認識プレビュー</h2>
       <p class="preview-label">途中認識</p>
       <p id="interimPreview" class="preview muted">—</p>
-      <p class="preview-label">確定した日本語</p>
+      <p class="preview-label">確定した入力</p>
       <p id="japanesePreview" class="preview">—</p>
-      <p class="preview-label">送出候補の英語</p>
+      <p class="preview-label">送出候補の翻訳</p>
       <p id="englishPreview" class="preview english">—</p>
     </section>
 
     <section class="primary-controls">
-      <button id="startButton" type="button" class="primary">英語CCを開始</button>
+      <button id="startButton" type="button" class="primary">CCを開始</button>
       <button id="stopButton" type="button" class="danger" disabled>停止</button>
     </section>
 
