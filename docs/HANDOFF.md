@@ -112,6 +112,8 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `src/sidepanel/sidepanel.css` | 操作画面のスタイル |
 | `src/sidepanel/sidepanel.js` | UI、各サービスの生成、開始・停止、状態表示を統合するComposition Root |
 | `src/speech/speech-recognizer.js` | マイク取得、入力一覧、SpeechRecognition、終了後の再開 |
+| `src/permission/mic-permission-flow.js` | Side Panelのマイク許可プロンプト問題を回避する判断ロジック（純粋関数） |
+| `src/permission/mic-permission.html` / `mic-permission.js` | マイク許可を通常タブとして要求する独立ページ |
 | `src/translation/chrome-translator.js` | Translator APIの可用性確認、初期化、ダウンロード進捗、翻訳 |
 | `src/captions/caption-queue.js` | 1件ずつ処理する有界FIFO、期限切れ・overflow処理 |
 | `src/captions/caption-policy.js` | 正規化、日本語混入拒否、重複排除、置換、長文分割 |
@@ -207,7 +209,7 @@ node scripts/check-syntax.mjs
 
 ### Chrome
 
-- Side Panelで`getUserMedia()`の許可を取得できるか
+- Side Panelで`getUserMedia()`の許可を取得できるか（対応済み・9.9参照。許可用タブ経由のフローをPhase 0で再検証すること）
 - マイク一覧とラベルが取得できるか
 - `SpeechRecognition`が拡張ページ内で動くか
 - `SpeechRecognition.start(MediaStreamTrack)`で選択マイクを使えるか
@@ -294,6 +296,22 @@ OBS再接続処理を変更する場合、古い`ObsCaptionOutput`やタイマ�
 ### 9.8 Side Panel終了イベント
 
 現在は`beforeunload`でマイク、Translator、OBSを解放します。ChromeがSide Panelを閉じたときに必ず期待どおり呼ばれるか実機確認が必要です。
+
+### 9.9 Side Panelのマイク許可プロンプト（対応済み）
+
+実機確認で判明: Chrome Side Panelは`getUserMedia()`のネイティブ許可プロンプトを正しく表示できません。拡張のマイク権限が「確認（prompt）」状態のとき、Side Panelから直接`getUserMedia()`を呼ぶとダイアログが一切表示されず即座に`NotAllowedError`で拒否されます（`chrome://settings/content/microphone`で該当origin を手動で「許可」に切り替えると、同じコードがそのまま成功することで確認済み）。Side Panelという実行コンテキスト固有の制限であり、拡張コードの呼び出し方自体の誤りではありません。
+
+対応: `src/permission/mic-permission.html`を`window.open()`で通常のトップレベルタブとして開き（`chrome.tabs.create`は使わない、`tabs`権限も`web_accessible_resources`追加も不要）、そのタブ内で`getUserMedia`を要求します。通常タブはプロンプトを正しく描画できるため許可が成立し、許可は`chrome-extension://<id>` origin単位で有効になるので、以降Side Panelから呼ぶ`getUserMedia()`も無許可プロンプトなしで成功します。判断ロジックは`src/permission/mic-permission-flow.js`に純粋関数として切り出し、`tests/mic-permission-flow.test.js`で検証しています。DOM/`chrome.*`/`window.*`への依存は`src/sidepanel/sidepanel.js`の`ensureMicrophonePermission()`と`src/permission/mic-permission.js`側の薄いグルーコードに閉じ込めています。
+
+注意点:
+
+- 既にマイク権限が`granted`の場合はタブを一切開かず、従来どおりSide Panel内で直接`getUserMedia`する高速経路を維持しています（`decideMicPermissionAction("granted") === "request-direct"`）。毎回タブが開くわけではありません。
+- 許可用タブは成功時に`window.close()`で自己クローズしますが、Chromeのバージョン・ポリシーによっては保証されないため、タブ側に常時「閉じない場合は手動で閉じてください」の案内を表示しています。
+- マイク権限が既に`denied`（ブロック済み）の場合、タブを開いても同様に自動拒否されるだけなので、タブは開かずchrome://settings/content/microphoneでの設定変更手順をログに表示するだけに留めます（fail closed）。
+- 完了検知は`BroadcastChannel`（許可用タブからの結果メッセージ）と`window.open()`の戻り値（`WindowProxy`）の`.closed`ポーリングを併用しています。メッセージ単独だとダイアログに答えずタブを閉じたケースを検知できず、`.closed`ポーリング単独だと「許可成功後に自己クローズ」と「未回答のまま閉じた」を区別できないためです。
+- 「更新・許可」を許可待ちタブが開いた状態でもう一度押しても、2つ目のタブは開かず既存タブに`focus()`するだけです（`state.micPermissionWaiting`ガード）。このフラグは`window.open()`直後ではなく`ensureMicrophonePermission()`の最初のawaitより前に立てているため、`permissions.query()`や直接`getUserMedia`を試している最中の連打でもタブが二重に開きません。
+- ダイアログを選ばずに閉じた「未回答での却下」も`NotAllowedError`になりますが、origin権限は`prompt`のまま（`denied`にはならない）です。許可用タブ経由のフローはこれを`denied`と誤表示しないよう、`awaitHelperCompletion`が`"denied"`を返した際に`queryMicrophonePermission`を再チェックし、実際に`denied`のときだけ「ブロック中」＋設定変更手順を出します。それ以外（未回答での却下など）は「未許可」＋再試行案内に留めます。
+- 許可用タブは`window.opener`を一切参照しません。Side Panelが先に閉じてもタブ単体で許可を完了できます。
 
 ## 10. 次の担当者が行う作業順
 
@@ -455,6 +473,7 @@ npm test
 - Translator wrapper変更: `tests/chrome-translator.test.js`
 - Manifest権限変更: `tests/manifest.test.js`
 - 設定・OBSパスワード保存境界の変更: `tests/settings-store.test.js`
+- マイク許可フロー変更: `tests/mic-permission-flow.test.js`
 
 Chrome APIの実挙動に関わる修正は、unit testだけで完了扱いにせず、`docs/manual-test.md`の関連項目も再実行してください。
 
