@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "English CC for Twitch via OBS",
-  "description": "Transcribe Japanese speech, translate it to English in Chrome, and send it to Twitch as OBS closed captions.",
+  "name": "Multilingual CC for Twitch via OBS",
+  "description": "Transcribe speech in a selected language, translate it in Chrome, and send it to Twitch as OBS closed captions.",
   "version": "0.1.0",
   "minimum_chrome_version": "138",
   "permissions": [
@@ -17,7 +17,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "English CC"
+    "default_title": "Multilingual CC"
   },
   "side_panel": {
     "default_path": "src/sidepanel/sidepanel.html"
