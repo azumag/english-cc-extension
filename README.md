@@ -37,10 +37,11 @@
 - 日本語・中国語を翻訳先にした場合のCJK字幕送出
 - 有界FIFO字幕キュー、期限切れ・重複の破棄
 - 固有名詞置換と最終字幕文字数での長文分割
+- 分割字幕・連続発話間の送信間隔（`segmentIntervalMs`、既定1500ms）
 - obs-websocket 5.x challenge-response認証
 - `GetVersion` / `GetStreamStatus` / `GetInputMute` / `SendStreamCaption`
 - OBS未配信・マイクミュート時の送信停止
-- OBSパスワードを`chrome.storage.session`にのみ保持
+- OBSパスワードを`chrome.storage.session`にのみ保持（opt-inで端末内保存も選択可）
 - Node.js unit testとGitHub Actions
 
 ## インストール
@@ -72,7 +73,7 @@
 
 言語ペアがChrome Translator APIで利用できない場合は開始時にエラーを表示します。初回は対象言語のモデルダウンロードが必要になる場合があります。
 
-OBSパスワードはChromeセッション内だけに保持し、Chromeを再起動すると消えます。認識原文と翻訳本文は永続保存しません。
+OBSパスワードは既定でChromeセッション内だけに保持し、Chromeを再起動すると消えます。「このデバイスにパスワードを保存する」にチェックを入れて同意した場合のみ、このデバイスに保存されChrome再起動後も再入力不要になります（表示される危険性の説明を読んでから有効にしてください。共有PCでは有効にしないでください）。認識原文と翻訳本文は永続保存しません。
 
 ## 現時点の制約
 
@@ -80,7 +81,7 @@ OBSパスワードはChromeセッション内だけに保持し、Chromeを再�
 - 通常のChrome音声認識では音声が認識サービスへ送信される場合があります。
 - 選択した`MediaStreamTrack`を`SpeechRecognition.start(track)`へ渡しますが、Chrome実装が未対応の場合はブラウザ既定マイクへフォールバックします。
 - 音声認識側で利用できる言語と、Translator API側で利用できる言語ペアはChrome環境に依存します。
-- `maxCaptionChars=72`は暫定値です。CEA-608/Twitch実機表示を確認して調整します。
+- `maxCaptionChars=72`と`segmentIntervalMs=1500`は暫定値です。CEA-608/Twitch実機表示を確認して調整します。
 - Chrome Translator APIの初回モデル取得にはユーザー操作とネットワーク接続が必要です。
 - TwitchのVODへ字幕が残るかは未確認です。
 - Windows x64を第一対象とし、macOSは未検証です。
@@ -102,7 +103,7 @@ npm test
 
 - OBS接続先は`127.0.0.1`または`localhost`だけ
 - `--disable-web-security`やremote debuggingを使用しない
-- OBSパスワードを`chrome.storage.local`へ保存しない
+- OBSパスワードを、ユーザーの明示的なopt-in（警告文への同意）なしに`chrome.storage.local`へ保存しない。`chrome.storage.sync`へはいかなる場合も保存しない
 - Twitch権限、タブ権限、Cookie権限、閲覧履歴権限を要求しない
 - 翻訳失敗時に認識原文をTwitchへ送らない
 - OBS未配信・OBS切断・マイク状態取得失敗時は送信しない

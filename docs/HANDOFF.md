@@ -1,6 +1,6 @@
 # English CC Extension 引き継ぎ文書
 
-最終更新: 2026-08-14 (JST)
+最終更新: 2026-08-16 (JST)
 
 ## 0. 最初に確認すること
 
@@ -115,6 +115,7 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `src/translation/chrome-translator.js` | Translator APIの可用性確認、初期化、ダウンロード進捗、翻訳 |
 | `src/captions/caption-queue.js` | 1件ずつ処理する有界FIFO、期限切れ・overflow処理 |
 | `src/captions/caption-policy.js` | 正規化、日本語混入拒否、重複排除、置換、長文分割 |
+| `src/captions/caption-pacer.js` | 分割字幕・連続発話間の送信間隔（ペーシング） |
 | `src/obs/obs-websocket-client.js` | obs-websocket 5.x接続、認証、request/response管理 |
 | `src/obs/obs-caption-output.js` | OBSバージョン確認、配信・ミュート判定、字幕送信 |
 | `src/settings/settings-store.js` | 通常設定とOBSパスワードの保存境界 |
@@ -141,25 +142,28 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `maxPending` | `2` | 1〜10。処理中の1件は別枠 |
 | `maxAgeMs` | `5000` | 500〜30000ms |
 | `maxCaptionChars` | `72` | 暫定値。実機確認後に確定する |
+| `segmentIntervalMs` | `1500` | 0〜10000ms。分割字幕・連続発話間の送信間隔。`0`で無効化。暫定値 |
 | `replacements` | `{}` | 英訳後に適用する完全一致部分置換 |
 | `logCaptions` | `false` | 将来用。現在のUIでは本文永続ログを行わない |
+| `obsPasswordPersistLocal` | `false` | opt-in。trueかつユーザーが警告文に同意した場合のみOBSパスワードを`chrome.storage.local`にも保存する |
 
 ### 保存場所
 
 - 通常設定: `chrome.storage.local`
-- OBS WebSocketパスワード: `chrome.storage.session`
-- `chrome.storage.session`が使えないテスト環境: メモリのみ
+- OBS WebSocketパスワード: 既定は`chrome.storage.session`のみ。`obsPasswordPersistLocal=true`のopt-in時のみ`chrome.storage.local`にも平文でミラー保存する（`src/settings/settings-store.js`）
+- `chrome`自体が使えないテスト環境（`globalThis.chrome`未定義）: メモリのみ。`obsPasswordPersistLocal`は無視される
+- `chrome.storage.local`はあるが`chrome.storage.session`だけ使えない環境（実Chrome 138以降では起こらない想定）: 生存中の値はメモリにフォールバックするが、`persistLocal`のlocalミラー書き込み自体は独立して動くため、その場合は書き込まれたlocalの値を`loadObsPassword()`が読みに行かない非対称が残る
 - 日本語認識結果・英訳結果: 永続保存しない
 - イベントログ: サイドパネルのメモリ内のみ
 
-Chromeを再起動するとOBSパスワードは消える設計です。
+既定（`obsPasswordPersistLocal=false`）ではChromeを再起動するとOBSパスワードは消えます。opt-inした場合のみ再起動後も保持されます。「このデバイスに保存する」チェックボックスはON/OFFどちらも`change`イベントで即座に`persistSettings()`（設定全体の保存＋`saveObsPassword`）を呼びます。「設定を保存」ボタンを別途押すのを待ちません。チェックを外した瞬間に`chrome.storage.local`側のコピーが消去されるのはこの経路によるもので、設定オブジェクト内の`obsPasswordPersistLocal`フラグと実際の`chrome.storage.local`の保存状態が食い違ったまま残ることを防ぎます。localのみを消去する`removeLocalObsPassword()`（`src/settings/settings-store.js`）はテスト・将来のUIから利用できるよう公開していますが、現在のサイドパネルUIからは直接呼んでいません。
 
 ## 6. セキュリティ上の不変条件
 
 変更時も次を維持してください。
 
 1. OBS接続先を`127.0.0.1`または`localhost`以外に広げない。
-2. OBSパスワードを`chrome.storage.local`へ保存しない。
+2. OBSパスワードを、ユーザーが警告文に明示的に同意してopt-inした場合（`obsPasswordPersistLocal=true`）を除き`chrome.storage.local`へ保存しない。`chrome.storage.sync`へはいかなる場合も保存しない。既定値は常にOFF。opt-inをOFFへ戻したら保存済みパスワードを即時に消去する。
 3. 認識原文・翻訳文を既定で永続保存しない。
 4. 翻訳失敗時に日本語原文をTwitchへ送らない。
 5. TwitchのCookie、OAuth、タブ、閲覧履歴権限を要求しない。
@@ -259,11 +263,17 @@ OBS WebSocketクライアントには切断検出がありますが、自動再�
 
 本番化する場合は、古い字幕キューを破棄したうえで、上限付き指数バックオフを追加してください。
 
-### 9.4 分割字幕の送信間隔
+### 9.4 分割字幕の送信間隔（対応済み・実機値は未確定）
 
-長文を複数セグメントへ分割した場合、現在は各セグメントを連続して送ります。Twitch側で直前字幕が読めない速度で上書きされる可能性があります。
+`src/captions/caption-pacer.js`の`CaptionPacer`が`ObsCaptionOutput`を薄くラップし、前回**送信成功**時刻からの経過が`segmentIntervalMs`未満なら待機してから送信するようになりました。`sidepanel.js`の`createCaptionPipeline`でセグメント送信ループに組み込み済みです。間隔はセグメント間だけでなく、連続する確定発話間にも自然に効きます（`lastSentAt`をパイプライン生存期間で保持するため）。
 
-実機で安全な間隔を測定し、必要なら`CaptionQueue`または`ObsCaptionOutput`の上位に送信ペーサーを追加してください。固定sleepをテストの同期手段には使わず、送信時間を注入可能にするとテストしやすくなります。
+設定は`segmentIntervalMs`（`src/shared/contracts.js`、既定`1500`ms、`0`で無効化、範囲`0〜10000`）。`clock`/`wait`を注入できるため、`tests/caption-pacer.test.js`は実sleepを使わずに検証しています。
+
+`CaptionPacer`は`shouldAbort`コールバックも受け付けます。待機（wait）は最大`segmentIntervalMs`かかるため、待機中にCC停止・Side Panel終了などで`state.running`がfalseになるケースを、待機直後・実送信直前に再チェックして`{ sent: false, reason: "aborted" }`で打ち切ります。これがないと、停止操作から最大`segmentIntervalMs`分遅れて字幕が1件だけ配信に載ってしまいます。
+
+残タスクは実機のみです。Twitch上で複数セグメントが確実に読める安全な間隔は未計測のため、`segmentIntervalMs`の既定値`1500ms`はPhase 0実測で確定してください。待機中に`maxAgeMs`超過で後続キュー項目が`expired`落ちしやすくなる点は意図した挙動です（14節「最新字幕を優先し、遅れた字幕を後からまとめて送らない」）。
+
+同じ理由で、1件の長い発話が`maxCaptionChars`超で複数セグメントに分割された場合、各セグメントの期限判定は元発話の`createdAt`を基準にする（`caption-policy.js`の`prepare()`）ため、`segmentIntervalMs`による待機が積み重なると**同一発話の後半セグメントだけが`expired`で送られない**ことがあります（目安: ソース文が概ね120文字を超えるとチャンク数が4件前後になり、既定値`1500ms`の累積待機が`maxAgeMs`既定`5000ms`に近づく）。これも14節の方針どおりの意図した挙動ですが、体感としては「後続キュー項目の破棄」とは別の現象（同一字幕の尻切れ）なので、実機確認時は区別して記録してください。
 
 ### 9.5 CEA-608文字集合
 
@@ -278,6 +288,8 @@ OBS WebSocketクライアントには切断検出がありますが、自動再�
 ### 9.7 再接続失敗時の状態整理
 
 OBS再接続処理を変更する場合、古い`ObsCaptionOutput`やタイマーを残さないことを確認してください。接続失敗後に以前のclientを参照し続けないよう、状態遷移テストを追加するのが望ましいです。
+
+`connectObs()`は再接続のたびに`state.pacer?.setOutput(state.output)`を呼び、CC実行中に手動で「OBSへ接続」を押した場合でも`CaptionPacer`が古い（切断済みの）`ObsCaptionOutput`を握り続けないようにしています。`ObsCaptionOutput.initialize()`が失敗する場合に備えて、`setOutput`は`initialize()`より前（`state.output`の代入直後）に呼ぶ配置にしてあります。この配線を変更する場合は`tests/caption-pacer.test.js`の`setOutput()`関連テストを参照してください。
 
 ### 9.8 Side Panel終了イベント
 
@@ -355,7 +367,7 @@ P0が成立しない場合は、機能を膨らませずIssue #1にある代替�
 
 - 音声認識fatal errorの分類
 - OBS自動再接続
-- 字幕送信ペーシング
+- 字幕送信ペーシング（実装済み、実機での間隔確定が残タスク。9.4参照）
 - CEA-608安全文字の正規化
 - 長時間テスト
 - 状態遷移テスト
@@ -437,10 +449,12 @@ npm test
 
 - 字幕ポリシー変更: `tests/caption-policy.test.js`
 - キュー変更: `tests/caption-queue.test.js`
+- 送信ペーシング変更: `tests/caption-pacer.test.js`
 - OBS認証・プロトコル変更: `tests/obs-auth.test.js`など
 - OBS送出条件変更: `tests/obs-caption-output.test.js`
 - Translator wrapper変更: `tests/chrome-translator.test.js`
 - Manifest権限変更: `tests/manifest.test.js`
+- 設定・OBSパスワード保存境界の変更: `tests/settings-store.test.js`
 
 Chrome APIの実挙動に関わる修正は、unit testだけで完了扱いにせず、`docs/manual-test.md`の関連項目も再実行してください。
 

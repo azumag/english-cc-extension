@@ -1,3 +1,4 @@
+import { CaptionPacer } from "../captions/caption-pacer.js";
 import { CaptionPolicy } from "../captions/caption-policy.js";
 import { CaptionQueue } from "../captions/caption-queue.js";
 import { ObsCaptionOutput } from "../obs/obs-caption-output.js";
@@ -21,8 +22,8 @@ const FATAL_ERROR_LABELS = {
 const elements = Object.fromEntries([
   "overallStatus", "chromeStatus", "microphoneStatus", "recognitionStatus", "translationStatus", "obsStatus", "streamStatus",
   "microphoneSelect", "refreshMicrophonesButton", "recognitionLanguageInput", "targetLanguageInput",
-  "obsHostInput", "obsPortInput", "obsPasswordInput", "obsMicrophoneInputName",
-  "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "replacementsInput",
+  "obsHostInput", "obsPortInput", "obsPasswordInput", "obsPasswordPersistInput", "obsMicrophoneInputName",
+  "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "segmentIntervalInput", "replacementsInput",
   "saveSettingsButton", "interimPreview", "japanesePreview", "englishPreview", "startButton", "stopButton", "clearLogButton", "eventLog",
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -32,6 +33,7 @@ const state = {
   recognizer: null,
   obsClient: null,
   output: null,
+  pacer: null,
   policy: null,
   queue: null,
   running: false,
@@ -77,10 +79,12 @@ function readFormSettings() {
     microphoneDeviceId: elements.microphoneSelect.value,
     obsHost: elements.obsHostInput.value,
     obsPort: Number(elements.obsPortInput.value),
+    obsPasswordPersistLocal: elements.obsPasswordPersistInput.checked,
     obsMicrophoneInputName: elements.obsMicrophoneInputName.value,
     maxPending: Number(elements.maxPendingInput.value),
     maxAgeMs: Number(elements.maxAgeInput.value),
     maxCaptionChars: Number(elements.maxCaptionCharsInput.value),
+    segmentIntervalMs: Number(elements.segmentIntervalInput.value),
     replacements: parseReplacements(),
     logCaptions: false,
   });
@@ -91,10 +95,12 @@ function populateSettings(settings) {
   elements.targetLanguageInput.value = settings.targetLanguage;
   elements.obsHostInput.value = settings.obsHost;
   elements.obsPortInput.value = settings.obsPort;
+  elements.obsPasswordPersistInput.checked = settings.obsPasswordPersistLocal;
   elements.obsMicrophoneInputName.value = settings.obsMicrophoneInputName;
   elements.maxPendingInput.value = settings.maxPending;
   elements.maxAgeInput.value = settings.maxAgeMs;
   elements.maxCaptionCharsInput.value = settings.maxCaptionChars;
+  elements.segmentIntervalInput.value = settings.segmentIntervalMs;
   elements.replacementsInput.value = Object.keys(settings.replacements).length
     ? JSON.stringify(settings.replacements, null, 2)
     : "";
@@ -103,7 +109,7 @@ function populateSettings(settings) {
 async function persistSettings() {
   const settings = readFormSettings();
   state.settings = await saveSettings(settings);
-  await saveObsPassword(elements.obsPasswordInput.value);
+  await saveObsPassword(elements.obsPasswordInput.value, { persistLocal: state.settings.obsPasswordPersistLocal });
   logger.info("設定を保存しました");
   return state.settings;
 }
@@ -171,6 +177,17 @@ function createCaptionPipeline(settings) {
     allowCjkText: targetAllowsCjkText(settings.targetLanguage),
   });
 
+  // Paces segment sends so a long utterance split into multiple captions
+  // doesn't overwrite itself on Twitch before a viewer can read it
+  // (see docs/HANDOFF.md 9.4). Persists across items on purpose: the
+  // interval also applies between the last segment of one utterance and
+  // the first segment of the next.
+  state.pacer = new CaptionPacer({
+    output: state.output,
+    intervalMs: settings.segmentIntervalMs,
+    shouldAbort: () => !state.running,
+  });
+
   state.queue?.dispose();
   state.queue = new CaptionQueue({
     maxPending: settings.maxPending,
@@ -192,9 +209,12 @@ function createCaptionPipeline(settings) {
       let sentCount = 0;
       for (const segment of prepared.segments) {
         if (!state.running) return;
-        const result = await state.output.sendCaption(segment);
+        const result = await state.pacer.sendCaption(segment);
         if (!result.sent) {
-          logger.warn(`字幕を送信できませんでした: ${result.reason}`);
+          // "aborted" means the user stopped CC (or a fatal error stopped
+          // it) while this segment was waiting out the pacing interval —
+          // expected, not worth a warning.
+          if (result.reason !== "aborted") logger.warn(`字幕を送信できませんでした: ${result.reason}`);
           return;
         }
         sentCount += 1;
@@ -235,6 +255,13 @@ async function connectObs() {
     client: state.obsClient,
     microphoneInputName: settings.obsMicrophoneInputName,
   });
+  // If captions are already running, rebind the pacer created in
+  // createCaptionPipeline() to the fresh output right away — even if
+  // initialize() below throws, the old output's client is already
+  // disconnected (see the disconnect() call above), so the pacer should
+  // not keep pointing at it either (see docs/HANDOFF.md 9.7 and
+  // src/captions/caption-pacer.js).
+  state.pacer?.setOutput(state.output);
   await state.output.initialize();
   elements.testCaptionButton.disabled = false;
   logger.info(`OBSへ接続しました: ${url}`);
@@ -355,6 +382,22 @@ elements.connectObsButton.addEventListener("click", () => {
 elements.testCaptionButton.addEventListener("click", () => { void sendTestCaption(); });
 elements.saveSettingsButton.addEventListener("click", () => {
   void persistSettings().catch((error) => logger.error(error.message));
+});
+elements.obsPasswordPersistInput.addEventListener("change", () => {
+  // Persists immediately in both directions, rather than waiting for
+  // "設定を保存": checking the box is itself the user's explicit consent to
+  // start storing the password on disk ("チェックマークを入れると保存され
+  // る"), and unchecking it must delete the on-disk copy right away so the
+  // settings flag and the actual chrome.storage.local mirror never drift
+  // apart (see docs/HANDOFF.md 6, item 2).
+  const persisting = elements.obsPasswordPersistInput.checked;
+  void persistSettings()
+    .then(() => {
+      logger.info(persisting
+        ? "OBSパスワードをこのデバイスに保存しました"
+        : "保存済みのOBSパスワードをこのデバイスから削除しました");
+    })
+    .catch((error) => logger.error(error.message));
 });
 elements.startButton.addEventListener("click", () => { void startCaptions(); });
 elements.stopButton.addEventListener("click", () => { void stopCaptions(); });

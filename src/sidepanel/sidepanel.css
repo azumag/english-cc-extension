@@ -52,6 +52,9 @@ input, select, textarea {
   border-radius: 8px;
   background: var(--bg);
 }
+.checkbox-field { display: flex; align-items: center; gap: 8px; }
+.checkbox-field input { width: auto; }
+.text-warn { color: var(--warn); }
 textarea { resize: vertical; }
 .inline-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
