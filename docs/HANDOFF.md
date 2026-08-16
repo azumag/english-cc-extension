@@ -10,7 +10,7 @@
 
 | 項目 | 現状 |
 |---|---|
-| リポジトリ | `azumag/english-cc-extension` |
+| リポジトリ | `azumag/tw-cc-sender`（旧名: `english-cc-extension`） |
 | 基準ブランチ | `main` |
 | 親Issue | #1 |
 | 初期実装コミット | `58c1ec5bffe4fbc336000e48dbd6cb628238bb43` |
@@ -336,8 +336,8 @@ OBS再接続処理を変更する場合、古い`ObsCaptionOutput`やタイマ�
 ### Step 1: 基準状態を確認
 
 ```bash
-git clone https://github.com/azumag/english-cc-extension.git
-cd english-cc-extension
+git clone https://github.com/azumag/tw-cc-sender.git
+cd tw-cc-sender
 npm install
 npm test
 ```
@@ -530,8 +530,8 @@ Chrome APIの実挙動に関わる修正は、unit testだけで完了扱いに�
 
 ## 16. 関連資料
 
-- 親Issue: `https://github.com/azumag/english-cc-extension/issues/1`
-- 初期実装コミット: `https://github.com/azumag/english-cc-extension/commit/58c1ec5bffe4fbc336000e48dbd6cb628238bb43`
+- 親Issue: `https://github.com/azumag/tw-cc-sender/issues/1`
+- 初期実装コミット: `https://github.com/azumag/tw-cc-sender/commit/58c1ec5bffe4fbc336000e48dbd6cb628238bb43`
 - dociai統合版Issue: `https://github.com/azumag/dociai/issues/282`
 - Chrome組み込みAI: `https://developer.chrome.com/docs/ai/built-in-apis`
 - Chrome Translator API: `https://developer.chrome.com/docs/ai/translator-api`
