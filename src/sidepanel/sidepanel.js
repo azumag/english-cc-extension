@@ -7,6 +7,7 @@ import {
   MIC_PERMISSION_CHANNEL,
   awaitHelperCompletion,
   decideMicPermissionAction,
+  microphoneStatusKey,
   queryMicrophonePermission,
   shouldOpenHelperAfterFailure,
 } from "../permission/mic-permission-flow.js";
@@ -540,6 +541,8 @@ async function refreshMicrophones({ requestPermission = false } = {}) {
   const recognizer = state.recognizer ?? createRecognizer(state.settings);
   if (requestPermission) {
     await ensureMicrophonePermission(recognizer);
+  } else {
+    await refreshMicrophoneStatus();
   }
   const devices = await recognizer.listMicrophones();
   const selected = state.settings?.microphoneDeviceId || elements.microphoneSelect.value;
@@ -558,6 +561,16 @@ async function refreshMicrophones({ requestPermission = false } = {}) {
   if ([...elements.microphoneSelect.options].some((option) => option.value === selected)) {
     elements.microphoneSelect.value = selected;
   }
+}
+
+// Reflects the real microphone permission into the status row. The side
+// panel's opening HTML label hardcodes "unauthorized", so without this the
+// panel would keep showing 未許可 even when the extension origin is already
+// allowed (the initial grant happens in the helper tab, docs/HANDOFF.md 9.9).
+async function refreshMicrophoneStatus() {
+  const permissionState = await queryMicrophonePermission(navigator.permissions);
+  const key = microphoneStatusKey(permissionState);
+  if (key) setText("microphoneStatus", t(key));
 }
 
 async function startCaptions() {

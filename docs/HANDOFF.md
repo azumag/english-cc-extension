@@ -400,6 +400,18 @@ issue #6で「認識言語」「翻訳先」のテキスト入力+`<datalist>`�
 - ページ非表示中のタイマー抑制（Chromeのintensive throttling）は再開を遅らせ得る。マイク捕捉中は抑制対象外になる想定だが、実機で「別アプリに切り替えて戻ったら止まっていた」が解消されるか確認する。
 - `quality: "conversation"`（9.12）とこの再開強化は独立した変更。それでも止まる場合は`command`モードへ戻して比較する（[`docs/manual-test.md`](manual-test.md)の認識モード比較項目）。
 
+### 9.14 サイドパネル再表示時のマイク権限表示（対応済み）
+
+ユーザー報告: マイクを許可済みなのに、サイドパネルを開き直すと「未許可」と表示される。
+
+原因: サイドパネルの開き直しは`initialize()`から`refreshMicrophones()`（権限クエリなし）を呼ぶだけだったため、HTMLの初期ステータス「未許可」がそのまま表示され続けていた。実際の許可はヘルパータブ経由で`chrome-extension://<id>` originに付くため、再表示時に照会すれば`granted`と分かる状態だった。
+
+対応（`src/sidepanel/sidepanel.js` + `src/permission/mic-permission-flow.js`）:
+
+- パネル表示時の初期ラベルを「確認中」に変更（`sidepanel.html`、`status_checking`）。
+- `refreshMicrophones()`が権限を要求しない初期化時にも`refreshMicrophoneStatus()`を呼び、`navigator.permissions.query({ name: "microphone" })`の結果をステータス行へ反映する。
+- 権限状態→表示キーのマッピングは`mic-permission-flow.js`の`microphoneStatusKey()`として純粋関数化し、`tests/mic-permission-flow.test.js`で検証。`unsupported`（Permissions APIが使えない環境）では既存表示を変更しない。
+
 ## 10. 次の担当者が行う作業順
 
 ### Step 1: 基準状態を確認
