@@ -10,6 +10,7 @@ import {
   queryMicrophonePermission,
   shouldOpenHelperAfterFailure,
 } from "../permission/mic-permission-flow.js";
+import { InterimCommitter } from "../speech/interim-committer.js";
 import { SpeechRecognizer } from "../speech/speech-recognizer.js";
 import { ChromeTranslator } from "../translation/chrome-translator.js";
 import { targetAllowsCjkText, toTranslatorLanguageTag } from "../translation/language-tags.js";
@@ -30,7 +31,7 @@ const elements = Object.fromEntries([
   "overallStatus", "chromeStatus", "microphoneStatus", "recognitionStatus", "translationStatus", "obsStatus", "streamStatus",
   "microphoneSelect", "refreshMicrophonesButton", "recognitionLanguageInput", "targetLanguageInput",
   "obsHostInput", "obsPortInput", "obsPasswordInput", "obsPasswordPersistInput", "obsMicrophoneInputName",
-  "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "segmentIntervalInput", "replacementsInput",
+  "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "segmentIntervalInput", "interimFlushCharsInput", "replacementsInput",
   "saveSettingsButton", "interimPreview", "japanesePreview", "englishPreview", "startButton", "stopButton", "clearLogButton", "eventLog",
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -38,6 +39,7 @@ const state = {
   settings: null,
   translator: null,
   recognizer: null,
+  interimCommitter: null,
   obsClient: null,
   output: null,
   pacer: null,
@@ -94,6 +96,7 @@ function readFormSettings() {
     maxAgeMs: Number(elements.maxAgeInput.value),
     maxCaptionChars: Number(elements.maxCaptionCharsInput.value),
     segmentIntervalMs: Number(elements.segmentIntervalInput.value),
+    interimFlushChars: Number(elements.interimFlushCharsInput.value),
     replacements: parseReplacements(),
     logCaptions: false,
   });
@@ -110,6 +113,7 @@ function populateSettings(settings) {
   elements.maxAgeInput.value = settings.maxAgeMs;
   elements.maxCaptionCharsInput.value = settings.maxCaptionChars;
   elements.segmentIntervalInput.value = settings.segmentIntervalMs;
+  elements.interimFlushCharsInput.value = settings.interimFlushChars;
   elements.replacementsInput.value = Object.keys(settings.replacements).length
     ? JSON.stringify(settings.replacements, null, 2)
     : "";
@@ -146,14 +150,29 @@ function createTranslator(settings) {
 }
 
 function createRecognizer(settings) {
+  state.interimCommitter = new InterimCommitter({ flushChars: settings.interimFlushChars });
   state.recognizer = new SpeechRecognizer({
     lang: settings.recognitionLanguage,
     onInterim: (text) => {
       elements.interimPreview.textContent = text || "—";
+      if (!state.running) return;
+      // Flushes a long in-progress utterance to translation before Chrome
+      // finalizes it, so translation doesn't wait for a whole run-on
+      // sentence (see docs/HANDOFF.md 9.10). No-op while interimFlushChars
+      // is 0 or the utterance hasn't crossed the threshold yet.
+      for (const chunk of state.interimCommitter.update(text)) {
+        state.queue?.submit({ text: chunk, createdAt: Date.now() });
+        logger.info(`長い発話を途中で区切って翻訳へ回しました（${chunk.length}文字）`);
+      }
     },
     onFinal: (text) => {
       elements.japanesePreview.textContent = text;
-      if (state.running) state.queue?.submit({ text, createdAt: Date.now() });
+      if (!state.running) return;
+      // Only the part beyond whatever interim flushing already committed —
+      // see InterimCommitter.finalize().
+      for (const chunk of state.interimCommitter.finalize(text)) {
+        state.queue?.submit({ text: chunk, createdAt: Date.now() });
+      }
     },
     onState: (status) => {
       const labels = {
@@ -166,6 +185,12 @@ function createRecognizer(settings) {
       };
       setText("recognitionStatus", labels[status.state] ?? status.state);
       if (status.state === "recognizing") setText("microphoneStatus", "許可済み");
+      // Chrome never finalizes an utterance across a restart/stop, so any
+      // uncommitted interim tail is unrecoverable — drop it rather than let
+      // it bleed into whatever starts next. Chunks already flushed stand.
+      if (["stopped", "restarting", "error", "fatal-error"].includes(status.state)) {
+        state.interimCommitter?.reset();
+      }
       if (status.state === "fatal-error") {
         state.running = false;
         elements.startButton.disabled = false;

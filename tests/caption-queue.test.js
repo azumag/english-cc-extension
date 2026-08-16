@@ -1,6 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CaptionQueue, segmentSourceText } from "../src/captions/caption-queue.js";
+import { CaptionQueue, findPreferredBreak, segmentSourceText } from "../src/captions/caption-queue.js";
+
+// findPreferredBreak() is also reused directly by
+// src/speech/interim-committer.js (see docs/HANDOFF.md 9.10); pin its
+// behavior here since it's now a public export, not just an implementation
+// detail of segmentSourceText().
+test("findPreferredBreak() prefers a sentence boundary over an earlier soft boundary", () => {
+  // "、" (soft) sits at index 3, "。" (sentence) at index 8 — the sentence
+  // boundary wins even though it comes later in the scanned window.
+  assert.equal(findPreferredBreak("今日は、晴れです。おまけ", 12), 9);
+});
+
+test("findPreferredBreak() takes a soft boundary only at or past 60% of maxChars", () => {
+  // A comma at index 2 is well before 60% of 10 -> ignored in favor of the hard cut.
+  assert.equal(findPreferredBreak("a,bcdefghij", 10), 10);
+  // A comma at index 6 (>= 60% of 10) is taken.
+  assert.equal(findPreferredBreak("abcdef,ghij", 10), 7);
+});
+
+test("findPreferredBreak() hard-cuts at maxChars when no boundary exists in range", () => {
+  assert.equal(findPreferredBreak("abcdefghijklmnop", 10), 10);
+});
 
 test("processes captions in FIFO order", async () => {
   const processed = [];

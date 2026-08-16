@@ -130,6 +130,11 @@
         <small>連続送信すると前の字幕が読み切れないうちに上書きされます（暫定値）。</small>
       </label>
       <label>
+        発話途中の区切り文字数（0で無効）
+        <input id="interimFlushCharsInput" type="number" min="0" max="200" step="10" value="40">
+        <small>長い発話を認識確定前にこの文字数ごとに区切り、先に翻訳へ回します。表示は速くなりますが、確定前の文で区切るため区切り付近の訳が不自然になることがあります（暫定値）。</small>
+      </label>
+      <label>
         固有名詞置換（JSON）
         <textarea id="replacementsInput" rows="4" spellcheck="false" placeholder='{"Palantia":"Palantir"}'></textarea>
       </label>

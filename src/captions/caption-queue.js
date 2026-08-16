@@ -1,7 +1,11 @@
 const SENTENCE_BOUNDARY = /[。！？.!?]/u;
 const SOFT_BOUNDARY = /[、,，;；:：\s]/u;
 
-function findPreferredBreak(text, maxChars) {
+// Exported for reuse by src/speech/interim-committer.js, which applies the
+// same punctuation-preferring cut heuristic to still-growing interim text
+// (see docs/HANDOFF.md 9.10) so early-flushed and post-final chunking feel
+// consistent.
+export function findPreferredBreak(text, maxChars) {
   let sentenceBreak = -1;
   let softBreak = -1;
   const limit = Math.min(text.length, maxChars);

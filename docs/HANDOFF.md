@@ -71,7 +71,7 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
   -> Translatorを初期化
   -> マイクを取得
   -> SpeechRecognitionを開始
-  -> final認識結果だけ字幕キューへ投入
+  -> final認識結果と、interimFlushChars超の途中確定チャンクを字幕キューへ投入
   -> 英訳
   -> CaptionPolicyで検査・分割
   -> OBSの配信状態・マイクミュートを確認
@@ -91,7 +91,7 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 通常字幕は、次をすべて満たす場合だけ送信します。
 
 - サイドパネル側のCC処理がON
-- 音声認識結果が`final`
+- 音声認識結果が`final`、または`interimFlushChars`で明示的に途中確定したチャンク
 - 翻訳結果が空でない
 - 翻訳結果に日本語文字が残っていない
 - 直前に送った字幕と同一でない
@@ -112,6 +112,7 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `src/sidepanel/sidepanel.css` | 操作画面のスタイル |
 | `src/sidepanel/sidepanel.js` | UI、各サービスの生成、開始・停止、状態表示を統合するComposition Root |
 | `src/speech/speech-recognizer.js` | マイク取得、入力一覧、SpeechRecognition、終了後の再開 |
+| `src/speech/interim-committer.js` | 長い発話を確定前に区切って翻訳へ先行投入する状態機械（純粋関数） |
 | `src/permission/mic-permission-flow.js` | Side Panelのマイク許可プロンプト問題を回避する判断ロジック（純粋関数） |
 | `src/permission/mic-permission.html` / `mic-permission.js` | マイク許可を通常タブとして要求する独立ページ |
 | `src/translation/chrome-translator.js` | Translator APIの可用性確認、初期化、ダウンロード進捗、翻訳 |
@@ -145,6 +146,7 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `maxAgeMs` | `5000` | 500〜30000ms |
 | `maxCaptionChars` | `72` | 暫定値。実機確認後に確定する |
 | `segmentIntervalMs` | `1500` | 0〜10000ms。分割字幕・連続発話間の送信間隔。`0`で無効化。暫定値 |
+| `interimFlushChars` | `40` | 0〜200。長い発話を確定前に区切って翻訳へ回す文字数。`0`で無効化。暫定値 |
 | `replacements` | `{}` | 英訳後に適用する完全一致部分置換 |
 | `logCaptions` | `false` | 将来用。現在のUIでは本文永続ログを行わない |
 | `obsPasswordPersistLocal` | `false` | opt-in。trueかつユーザーが警告文に同意した場合のみOBSパスワードを`chrome.storage.local`にも保存する |
@@ -313,6 +315,22 @@ OBS再接続処理を変更する場合、古い`ObsCaptionOutput`やタイマ�
 - ダイアログを選ばずに閉じた「未回答での却下」も`NotAllowedError`になりますが、origin権限は`prompt`のまま（`denied`にはならない）です。許可用タブ経由のフローはこれを`denied`と誤表示しないよう、`awaitHelperCompletion`が`"denied"`を返した際に`queryMicrophonePermission`を再チェックし、実際に`denied`のときだけ「ブロック中」＋設定変更手順を出します。それ以外（未回答での却下など）は「未許可」＋再試行案内に留めます。
 - 許可用タブは`window.opener`を一切参照しません。Side Panelが先に閉じてもタブ単体で許可を完了できます。
 
+### 9.10 長い発話の途中確定（interim flush、対応済み・実機挙動は未確認）
+
+ユーザー報告: 発話中、一回区切らないと翻訳に入らず、長い文では翻訳までにかなりのタイムラグがある。
+
+原因: Web Speech APIは、Chrome側の音声区間検出（VAD）が区切りを判断するまで`onFinal`を呼びません。これは拡張側から制御・強制できません。句読点なしで長く話し続けると、確定（final）自体が遅れ、翻訳開始まで大きな遅延が生じます。9.4の`segmentIntervalMs`による分割は「確定後」の長文を区切る機能であり、確定前のこの遅延には効きません。
+
+対応: `src/speech/interim-committer.js`の`InterimCommitter`が、まだ成長中の暫定（interim）テキストを`interimFlushChars`文字を超えるたびに先頭から区切り、`sidepanel.js`経由で通常の`onFinal`と同じ`state.queue.submit()`（翻訳→`CaptionPolicy.prepare`→`CaptionPacer.sendCaption`）へ先行投入します。区切り位置は`src/captions/caption-queue.js`の`findPreferredBreak`（句点優先、次点で読点等のソフト境界、なければハードカット）をそのまま再利用し、確定後分割と体感を揃えています。`onFinal`が来た時点では、`InterimCommitter.finalize()`が「既に投入済みの分」を差し引いた残り部分だけを返すため、二重送信を避けます。
+
+注意点（精度とのトレードオフ、実機確認が必要）:
+
+- これは低遅延と引き換えに**確定前の文で区切る精度トレードオフ**です。Chromeの音声認識は暫定テキストを後から訂正することがあり、訂正が起きた場合、既に投入・送信済みのチャンクは取り消せません。訂正の深さを吸収するため末尾`safetyMarginChars`文字（既定10、コンストラクタオプションのみでユーザー設定はなし）を常にコミット対象から除外していますが、深い訂正が起きた稀なケースでは、確定後に送られる残り部分と既送信チャンクの訳がわずかに重複・不自然になり得ます。
+- コミット済みテキストが次の認識結果（result）へまたがるケース（境界をChromeが想定と違う位置で区切った場合）は、`finalize()`が吸収できなかった末尾を「未検証のキャリーオーバー」として次の`update()`へ引き継ぎます。次の暫定テキストがそのキャリーオーバーより**短いが矛盾しない**間は破棄せず待機し（Chromeは新しい結果の暫定テキストを段階的に伸ばして届けるため）、実際に食い違った場合のみ破棄します。ライブで一度確定していたテキストと矛盾した場合（`frozen`状態）は、`finalize()`後にその食い違ったテキストをキャリーオーバーとして復活させません（否定された内容を次の発話の仮説として引きずらないため）。fable self-reviewでこの2点の不備（現実的な段階配信下ではキャリーオーバー確認がほぼ機能しない再送重複バグ、および否定済みテキストの残留）が見つかり、実装で修正済みです。
+- チャンクごとに独立したキュー項目になるため、翻訳が追いつかない状況では`maxPending`超過で中間チャンクが落ちる可能性があります（14節の「最新字幕を優先し、遅れた字幕を後からまとめて送らない」方針どおりの挙動）。
+- `interimFlushChars`既定値`40`（`sourceChunkChars`と同一）と`safetyMarginChars`既定値`10`はいずれも暫定値です。実機のja-JP暫定テキストの訂正パターン・句読点の出現頻度を確認してから確定してください。
+- 音声認識の`restarting`/`error`/`fatal-error`/`stopped`状態遷移では`InterimCommitter.reset()`を呼び、未確定の末尾を破棄します（Chromeは再開をまたいで確定しないため）。既に投入済みのチャンクはそのまま残ります。これは今までの「再開時に発話全体が失われる」動作からの改善です。
+
 ## 10. 次の担当者が行う作業順
 
 ### Step 1: 基準状態を確認
@@ -474,6 +492,7 @@ npm test
 - Manifest権限変更: `tests/manifest.test.js`
 - 設定・OBSパスワード保存境界の変更: `tests/settings-store.test.js`
 - マイク許可フロー変更: `tests/mic-permission-flow.test.js`
+- 途中確定（interim flush）変更: `tests/interim-committer.test.js`
 
 Chrome APIの実挙動に関わる修正は、unit testだけで完了扱いにせず、`docs/manual-test.md`の関連項目も再実行してください。
 
@@ -498,7 +517,7 @@ Chrome APIの実挙動に関わる修正は、unit testだけで完了扱いに�
 - [ ] 日本語から英語へ翻訳できる
 - [ ] OBS WebSocketへ認証付きで接続できる
 - [ ] OBS配信中にTwitch公式CCへ英語字幕を送れる
-- [ ] 日本語原文や途中認識結果を送らない
+- [ ] 日本語原文を送らない。認識途中のテキストは、`interimFlushChars`で明示的に途中確定した翻訳済みチャンク以外は送らない
 - [ ] OBS未配信時に送らない
 - [ ] 対象マイクのミュート中に送らない
 - [ ] 停止・Side Panel終了時にマイクを解放する

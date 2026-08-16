@@ -152,3 +152,18 @@ test("saveSettings/loadSettings round-trip obsPasswordPersistLocal, defaulting o
   assert.equal(saved.obsPasswordPersistLocal, true);
   assert.equal((await loadSettings()).obsPasswordPersistLocal, true);
 });
+
+test("saveSettings/loadSettings round-trip interimFlushChars, defaulting old records and out-of-range values to 40", async () => {
+  const { local } = installFakeChrome();
+  await local.set({ englishCcSettings: { recognitionLanguage: "ja-JP" } }); // pre-existing settings, no such key
+
+  assert.equal((await loadSettings()).interimFlushChars, 40);
+
+  const outOfRange = await saveSettings({ ...(await loadSettings()), interimFlushChars: 999 });
+  assert.equal(outOfRange.interimFlushChars, 40);
+
+  // 0 is a legal value (disables early flushing), not an invalid one to fall back from.
+  const disabled = await saveSettings({ ...(await loadSettings()), interimFlushChars: 0 });
+  assert.equal(disabled.interimFlushChars, 0);
+  assert.equal((await loadSettings()).interimFlushChars, 0);
+});

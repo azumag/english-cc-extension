@@ -31,7 +31,7 @@
 - 認識言語をBCP 47ロケールで指定可能（例: `ja-JP`, `en-US`, `zh-TW`）
 - 翻訳先をChrome Translator APIの言語コードで指定可能（例: `en`, `fr`, `zh-Hant`）
 - 認識ロケールからTranslator API用言語タグへの正規化
-- interimはプレビューのみ、finalだけ翻訳キューへ投入
+- 長い発話は確定前でも`interimFlushChars`文字を超えるたびに区切って先に翻訳（既定40、0で無効。確定前の文で区切るため精度とのトレードオフあり）
 - 長い確定発話を句読点優先で短く区切ってから順番に翻訳
 - Chrome Translator APIの利用可否確認、初回ダウンロード進捗、翻訳
 - 日本語・中国語を翻訳先にした場合のCJK字幕送出
@@ -81,7 +81,8 @@ OBSパスワードは既定でChromeセッション内だけに保持し、Chrom
 - 通常のChrome音声認識では音声が認識サービスへ送信される場合があります。
 - 選択した`MediaStreamTrack`を`SpeechRecognition.start(track)`へ渡しますが、Chrome実装が未対応の場合はブラウザ既定マイクへフォールバックします。
 - 音声認識側で利用できる言語と、Translator API側で利用できる言語ペアはChrome環境に依存します。
-- `maxCaptionChars=72`と`segmentIntervalMs=1500`は暫定値です。CEA-608/Twitch実機表示を確認して調整します。
+- `maxCaptionChars=72`、`segmentIntervalMs=1500`、`interimFlushChars=40`は暫定値です。CEA-608/Twitch実機表示を確認して調整します。
+- `interimFlushChars`による途中確定は低遅延と引き換えの精度トレードオフです。確定前の文で区切るため、Chrome側の認識訂正が起きると区切り付近の訳がまれに不自然・重複することがあります。
 - Chrome Translator APIの初回モデル取得にはユーザー操作とネットワーク接続が必要です。
 - TwitchのVODへ字幕が残るかは未確認です。
 - Windows x64を第一対象とし、macOSは未検証です。
