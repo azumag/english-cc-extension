@@ -6,6 +6,7 @@ import {
   decideMicPermissionAction,
   helperErrorMessage,
   isMicPermissionResultMessage,
+  microphoneStatusKey,
   queryMicrophonePermission,
   requestMicrophoneOnce,
   shouldOpenHelperAfterFailure,
@@ -33,6 +34,14 @@ test("shouldOpenHelperAfterFailure only opens the helper for the side-panel auto
   // Already "granted" + NotAllowedError means an OS-level block a helper tab can't fix.
   assert.equal(shouldOpenHelperAfterFailure({ permissionState: "granted", errorName: "NotAllowedError" }), false);
   assert.equal(shouldOpenHelperAfterFailure({ permissionState: "unsupported", errorName: "NotFoundError" }), false);
+});
+
+test("microphoneStatusKey maps states to the status-row i18n keys", () => {
+  assert.equal(microphoneStatusKey("granted"), "status_micGranted");
+  assert.equal(microphoneStatusKey("denied"), "status_micBlocked");
+  assert.equal(microphoneStatusKey("prompt"), "status_unauthorized");
+  assert.equal(microphoneStatusKey("unsupported"), null);
+  assert.equal(microphoneStatusKey("some-garbage-value"), null);
 });
 
 test("queryMicrophonePermission reads the injected Permissions API result", async () => {

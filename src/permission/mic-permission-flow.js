@@ -55,6 +55,16 @@ export function decideMicPermissionAction(permissionState) {
   return "request-direct";
 }
 
+// Maps a permission state to the status-row i18n key the side panel should
+// show. Kept here (not in sidepanel.js) so the mapping is unit-testable and
+// the UI glue stays a thin lookup.
+export function microphoneStatusKey(permissionState) {
+  if (permissionState === "granted") return "status_micGranted";
+  if (permissionState === "denied") return "status_micBlocked";
+  if (permissionState === "prompt") return "status_unauthorized";
+  return null; // "unsupported": leave whatever label is already on screen.
+}
+
 // Called only after an in-panel getUserMedia attempt has already rejected.
 // Opening a helper tab only makes sense for the side-panel-specific
 // auto-deny bug (permissionState "prompt" or unknown/"unsupported"). If the
