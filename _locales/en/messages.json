@@ -1,0 +1,177 @@
+{
+  "extName": { "message": "Multilingual CC for Twitch via OBS" },
+  "extDescription": { "message": "Transcribe speech in a selected language, translate it in Chrome, and send it to Twitch as OBS closed captions." },
+  "actionTitle": { "message": "Multilingual CC" },
+
+  "ui_appEyebrow": { "message": "Twitch via OBS" },
+  "ui_appTitle": { "message": "Multilingual CC" },
+  "ui_statusGroupLabel": { "message": "Connection status" },
+  "ui_statusMicLabel": { "message": "Microphone" },
+  "ui_statusRecognitionLabel": { "message": "Recognition" },
+  "ui_statusTranslationLabel": { "message": "Translation" },
+  "ui_statusStreamLabel": { "message": "Stream" },
+
+  "status_checking": { "message": "Checking" },
+  "status_unauthorized": { "message": "Not authorized" },
+  "status_stopped": { "message": "Stopped" },
+  "status_notReady": { "message": "Not ready" },
+  "status_disconnected": { "message": "Disconnected" },
+  "status_unknown": { "message": "Unknown" },
+  "status_sending": { "message": "Sending" },
+  "status_startFailed": { "message": "Start failed" },
+  "status_initFailed": { "message": "Initialization failed" },
+  "status_recognizingSelected": { "message": "Listening (selected mic)" },
+  "status_recognizing": { "message": "Listening" },
+  "status_restarting": { "message": "Restarting" },
+  "status_error": { "message": "Error" },
+  "status_fallbackDefaultMic": { "message": "Switched to default mic" },
+  "status_fatalErrorDefault": { "message": "Stopped (action needed)" },
+  "status_micGranted": { "message": "Granted" },
+  "status_micBlocked": { "message": "Blocked" },
+  "status_micWaitingHelper": { "message": "Waiting (separate tab)" },
+  "status_micMutedInObs": { "message": "Muted in OBS" },
+  "status_micOn": { "message": "On" },
+  "status_obsConnecting": { "message": "Connecting" },
+  "status_obsConnected": { "message": "Connected" },
+  "status_streamFetchFailed": { "message": "Fetch failed" },
+  "status_translationDownloading": {
+    "message": "Downloading $PCT$%",
+    "placeholders": { "pct": { "content": "$1" } }
+  },
+  "status_translationReady": { "message": "Available" },
+  "status_translationInitializing": { "message": "Preparing" },
+  "status_translationUnavailable": { "message": "Unavailable" },
+  "status_translationNeedsSetup": { "message": "First-time setup needed" },
+  "status_chromeSupported": { "message": "Supported" },
+  "status_chromePartial": { "message": "Partially unsupported" },
+
+  "err_fatalNotAllowed": { "message": "Grant microphone permission, then restart." },
+  "err_fatalServiceNotAllowed": { "message": "Speech recognition service isn't allowed. Check settings, then restart." },
+  "err_fatalLanguageNotSupported": { "message": "The selected recognition language isn't supported by speech recognition." },
+  "err_obsConnectError": { "message": "OBS connection error" },
+  "err_micBlocked": { "message": "Microphone is blocked. Change this extension to \"Allow\" at chrome://settings/content/microphone, then press \"Refresh & allow\" again." },
+  "err_micHelperOpenFailed": { "message": "Couldn't open the microphone permission tab. Press \"Refresh & allow\" again." },
+  "err_translatorPairUnavailable": {
+    "message": "The Chrome Translator API doesn't support $SOURCE$→$TARGET$",
+    "placeholders": { "source": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "err_obsNotConnected": { "message": "Connect to OBS first" },
+  "err_testCaptionFailed": {
+    "message": "Couldn't send the test caption: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "err_replacementsInvalidJson": { "message": "Specify term replacements as a JSON object" },
+
+  "ui_sectionInputObsTitle": { "message": "Input & OBS" },
+  "ui_microphoneLabel": { "message": "Streaming microphone" },
+  "ui_refreshMicButton": { "message": "Refresh & allow" },
+  "ui_micPermissionHint": { "message": "If microphone permission isn't granted yet, \"Refresh & allow\" opens a tab to grant it. Choose \"Allow\" in the dialog that appears." },
+  "ui_recognitionLanguageLabel": { "message": "Recognition language" },
+  "ui_targetLanguageLabel": { "message": "Translate to" },
+  "ui_languageCustomOption": { "message": "Other (type manually)" },
+  "ui_recognitionLanguageCustomPlaceholder": { "message": "e.g. ja-JP" },
+  "ui_targetLanguageCustomPlaceholder": { "message": "e.g. en" },
+  "ui_swapLanguagesButton": { "message": "Swap recognition and target languages" },
+  "ui_languageHint": { "message": "Choose \"Other (type manually)\" to enter a language code that isn't in the list." },
+  "pair_checking": { "message": "Checking availability…" },
+  "pair_incomplete": { "message": "Enter a language to check availability." },
+  "pair_available": { "message": "✓ This language pair is available." },
+  "pair_downloadable": { "message": "This language pair needs a one-time model download when you start." },
+  "pair_downloading": { "message": "Downloading the translation model…" },
+  "pair_unavailable": { "message": "✗ This language pair isn't supported by the Chrome Translator API." },
+  "pair_sameLanguage": { "message": "Recognition and target languages are the same." },
+  "pair_unknown": { "message": "Availability unknown in this Chrome version." },
+  "ui_obsHostLabel": { "message": "OBS host" },
+  "ui_obsPortLabel": { "message": "OBS port" },
+  "ui_obsPasswordLabel": { "message": "OBS WebSocket password" },
+  "ui_obsPasswordPlaceholder": { "message": "Re-enter after Chrome restarts" },
+  "ui_obsPasswordPersistLabel": { "message": "Save password on this device (skip re-entry after Chrome restarts)" },
+  "ui_obsPasswordWarning": { "message": "Enabling this stores the password unencrypted on this PC. Anyone with access to this PC's Chrome profile could then fully control OBS (stop the stream, switch scenes, etc.). Don't enable this on a shared PC. By default (disabled) it's cleared when Chrome restarts." },
+  "ui_obsMicInputLabel": { "message": "OBS microphone input name (optional)" },
+  "ui_obsMicInputPlaceholder": { "message": "e.g. Mic / AUX" },
+  "ui_obsMicInputHint": { "message": "When set, captions won't be sent while this input is muted in OBS." },
+  "ui_connectObsButton": { "message": "Connect to OBS" },
+  "ui_testCaptionButton": { "message": "Test caption" },
+  "ui_captionSettingsTitle": { "message": "Caption settings" },
+  "ui_maxPendingLabel": { "message": "Max pending" },
+  "ui_maxAgeLabel": { "message": "Max wait time (ms)" },
+  "ui_maxCharsLabel": { "message": "Max characters per caption (provisional)" },
+  "ui_segmentIntervalLabel": { "message": "Segment send interval (ms, 0 to disable)" },
+  "ui_segmentIntervalHint": { "message": "Sending back to back overwrites the previous caption before it can be read (provisional value)." },
+  "ui_interimFlushLabel": { "message": "Mid-utterance flush length (0 to disable)" },
+  "ui_interimFlushHint": { "message": "Splits a long utterance into chunks of this many characters before it's finalized, and sends each chunk to translation early. Faster to display, but since it splits mid-sentence, the translation near a split can occasionally look unnatural or duplicated (provisional value)." },
+  "ui_replacementsLabel": { "message": "Term replacements (JSON)" },
+  "ui_saveSettingsButton": { "message": "Save settings" },
+  "ui_previewTitle": { "message": "Recognition preview" },
+  "ui_previewInterimLabel": { "message": "In progress" },
+  "ui_previewFinalLabel": { "message": "Finalized input" },
+  "ui_previewTranslatedLabel": { "message": "Translation to send" },
+  "ui_startButton": { "message": "Start CC" },
+  "ui_stopButton": { "message": "Stop" },
+  "ui_eventsTitle": { "message": "Events" },
+  "ui_clearLogButton": { "message": "Clear" },
+  "ui_privacyNote": { "message": "Chrome's regular speech recognition may send audio to a recognition service. Translation uses Chrome's built-in Translator API, and caption text isn't stored by default." },
+  "ui_defaultMicOption": { "message": "Default microphone" },
+
+  "log_settingsSaved": { "message": "Settings saved" },
+  "log_interimFlushed": {
+    "message": "Flushed a long in-progress utterance for translation ($CHARS$ chars)",
+    "placeholders": { "chars": { "content": "$1" } }
+  },
+  "log_captionProcessFailed": {
+    "message": "Caption processing failed: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_captionDropped": {
+    "message": "Dropped a caption: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_translatedCaptionDropped": {
+    "message": "Dropped a translated caption without sending: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_captionSendFailed": {
+    "message": "Couldn't send a caption: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_captionsSent": {
+    "message": "Sent translated captions ($COUNT$)",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "log_obsConnected": {
+    "message": "Connected to OBS: $URL$",
+    "placeholders": { "url": { "content": "$1" } }
+  },
+  "log_obsStatusFetchFailed": {
+    "message": "Couldn't fetch OBS status: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_micPermissionInProgress": { "message": "Microphone permission is in progress. Please wait." },
+  "log_micHelperOpened": { "message": "Opened the microphone permission tab. Choose \"Allow\" in the dialog that appears." },
+  "log_micHelperClosed": { "message": "The microphone permission tab was closed. Permission wasn't granted." },
+  "log_micPermissionIncomplete": { "message": "Microphone permission wasn't completed. Press \"Refresh & allow\" again, or \"Request permission again\" in the permission tab." },
+  "log_micGranted": { "message": "Microphone granted" },
+  "log_ccStarted": {
+    "message": "Started CC ($SOURCE$ → $TARGET$)",
+    "placeholders": { "source": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "log_ccStopped": { "message": "Stopped CC" },
+  "log_testCaptionSent": { "message": "Sent the test caption" },
+  "log_extensionLoaded": { "message": "Extension loaded" },
+  "log_obsPasswordSaved": { "message": "Saved the OBS password on this device" },
+  "log_obsPasswordRemoved": { "message": "Removed the saved OBS password from this device" },
+
+  "micHelper_pageTitle": { "message": "Microphone permission - Multilingual CC" },
+  "micHelper_heading": { "message": "Microphone permission" },
+  "micHelper_requesting": { "message": "Requesting microphone permission. Choose \"Allow\" in the dialog that appears." },
+  "micHelper_retryButton": { "message": "Request permission again" },
+  "micHelper_autoCloseNote": { "message": "This tab closes automatically once permission is granted. If it doesn't, close it manually." },
+  "micHelper_granted": { "message": "Microphone granted. This tab will close automatically." },
+  "micHelper_errNotAllowed": { "message": "Microphone is blocked. Change this extension to \"Allow\" at chrome://settings/content/microphone, then try again below." },
+  "micHelper_errNotFound": { "message": "No usable microphone was found. Connect a microphone, then try again below." },
+  "micHelper_errMediaUnavailable": { "message": "This browser doesn't support microphone access." },
+  "micHelper_errGeneric": {
+    "message": "Couldn't grant the microphone ($ERRORNAME$). Try again below.",
+    "placeholders": { "errorname": { "content": "$1" } }
+  }
+}

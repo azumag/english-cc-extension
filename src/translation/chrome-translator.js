@@ -1,3 +1,16 @@
+// Queries Translator.availability() without needing a ChromeTranslator
+// instance — used by the sidepanel to preview a language pair's
+// availability as soon as it's picked, before the user presses start (see
+// docs/HANDOFF.md). Mirrors ChromeTranslator.availability()'s fallbacks:
+// "unavailable" when the API itself doesn't exist, "unknown" when the
+// availability() method specifically is missing.
+export async function queryTranslatorAvailability(globalScope, { sourceLanguage, targetLanguage } = {}) {
+  const translatorApi = globalScope?.Translator;
+  if (!translatorApi?.create) return "unavailable";
+  if (typeof translatorApi.availability !== "function") return "unknown";
+  return translatorApi.availability({ sourceLanguage, targetLanguage });
+}
+
 export class ChromeTranslator {
   constructor({
     sourceLanguage = "ja",
@@ -18,9 +31,7 @@ export class ChromeTranslator {
   }
 
   async availability() {
-    if (!this.supported) return "unavailable";
-    if (typeof this.globalScope.Translator.availability !== "function") return "unknown";
-    return this.globalScope.Translator.availability({
+    return queryTranslatorAvailability(this.globalScope, {
       sourceLanguage: this.sourceLanguage,
       targetLanguage: this.targetLanguage,
     });

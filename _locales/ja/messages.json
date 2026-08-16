@@ -1,0 +1,177 @@
+{
+  "extName": { "message": "Multilingual CC for Twitch via OBS" },
+  "extDescription": { "message": "選択した言語でマイク音声を認識し、Chrome内蔵Translator APIで翻訳して、OBS経由でTwitchのクローズドキャプションへ送ります。" },
+  "actionTitle": { "message": "Multilingual CC" },
+
+  "ui_appEyebrow": { "message": "Twitch via OBS" },
+  "ui_appTitle": { "message": "Multilingual CC" },
+  "ui_statusGroupLabel": { "message": "接続状態" },
+  "ui_statusMicLabel": { "message": "マイク" },
+  "ui_statusRecognitionLabel": { "message": "音声認識" },
+  "ui_statusTranslationLabel": { "message": "翻訳" },
+  "ui_statusStreamLabel": { "message": "配信" },
+
+  "status_checking": { "message": "確認中" },
+  "status_unauthorized": { "message": "未許可" },
+  "status_stopped": { "message": "停止" },
+  "status_notReady": { "message": "未準備" },
+  "status_disconnected": { "message": "未接続" },
+  "status_unknown": { "message": "不明" },
+  "status_sending": { "message": "送出中" },
+  "status_startFailed": { "message": "開始失敗" },
+  "status_initFailed": { "message": "初期化失敗" },
+  "status_recognizingSelected": { "message": "聞き取り中（選択マイク）" },
+  "status_recognizing": { "message": "聞き取り中" },
+  "status_restarting": { "message": "再開待ち" },
+  "status_error": { "message": "エラー" },
+  "status_fallbackDefaultMic": { "message": "既定マイクへ切替" },
+  "status_fatalErrorDefault": { "message": "停止（要再操作）" },
+  "status_micGranted": { "message": "許可済み" },
+  "status_micBlocked": { "message": "ブロック中" },
+  "status_micWaitingHelper": { "message": "許可待ち（別タブ）" },
+  "status_micMutedInObs": { "message": "OBSでミュート" },
+  "status_micOn": { "message": "ON" },
+  "status_obsConnecting": { "message": "接続中" },
+  "status_obsConnected": { "message": "接続済み" },
+  "status_streamFetchFailed": { "message": "取得失敗" },
+  "status_translationDownloading": {
+    "message": "ダウンロード $PCT$%",
+    "placeholders": { "pct": { "content": "$1" } }
+  },
+  "status_translationReady": { "message": "利用可能" },
+  "status_translationInitializing": { "message": "準備中" },
+  "status_translationUnavailable": { "message": "利用不可" },
+  "status_translationNeedsSetup": { "message": "初回準備が必要" },
+  "status_chromeSupported": { "message": "対応" },
+  "status_chromePartial": { "message": "一部非対応" },
+
+  "err_fatalNotAllowed": { "message": "マイク権限を許可してから再開してください" },
+  "err_fatalServiceNotAllowed": { "message": "音声認識サービスが許可されていません。設定を確認してから再開してください" },
+  "err_fatalLanguageNotSupported": { "message": "選択した認識言語は音声認識でサポートされていません" },
+  "err_obsConnectError": { "message": "OBS接続エラー" },
+  "err_micBlocked": { "message": "マイクがブロックされています。chrome://settings/content/microphone でこの拡張機能を「許可」に変更してから、もう一度「更新・許可」を押してください" },
+  "err_micHelperOpenFailed": { "message": "マイク許可用のタブを開けませんでした。もう一度「更新・許可」を押してください" },
+  "err_translatorPairUnavailable": {
+    "message": "$SOURCE$→$TARGET$ のChrome Translator APIを利用できません",
+    "placeholders": { "source": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "err_obsNotConnected": { "message": "先にOBSへ接続してください" },
+  "err_testCaptionFailed": {
+    "message": "テスト字幕を送信できません: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "err_replacementsInvalidJson": { "message": "固有名詞置換はJSONオブジェクトで指定してください" },
+
+  "ui_sectionInputObsTitle": { "message": "入力とOBS" },
+  "ui_microphoneLabel": { "message": "配信用マイク" },
+  "ui_refreshMicButton": { "message": "更新・許可" },
+  "ui_micPermissionHint": { "message": "マイク権限が未許可の場合、「更新・許可」で許可用のタブが開きます。表示されるダイアログで「許可」を選んでください。" },
+  "ui_recognitionLanguageLabel": { "message": "認識言語" },
+  "ui_targetLanguageLabel": { "message": "翻訳先" },
+  "ui_languageCustomOption": { "message": "その他（手入力）" },
+  "ui_recognitionLanguageCustomPlaceholder": { "message": "例: ja-JP" },
+  "ui_targetLanguageCustomPlaceholder": { "message": "例: en" },
+  "ui_swapLanguagesButton": { "message": "認識言語と翻訳先を入れ替え" },
+  "ui_languageHint": { "message": "一覧にない言語は「その他（手入力）」を選ぶと直接入力できます。" },
+  "pair_checking": { "message": "利用可否を確認中…" },
+  "pair_incomplete": { "message": "言語を入力すると利用可否を確認します。" },
+  "pair_available": { "message": "✓ この言語ペアは利用できます。" },
+  "pair_downloadable": { "message": "この言語ペアは開始時に初回モデルのダウンロードが必要です。" },
+  "pair_downloading": { "message": "翻訳モデルをダウンロード中…" },
+  "pair_unavailable": { "message": "✗ この言語ペアはChrome Translator APIでサポートされていません。" },
+  "pair_sameLanguage": { "message": "認識言語と翻訳先が同じです。" },
+  "pair_unknown": { "message": "このChromeでは利用可否を確認できません。" },
+  "ui_obsHostLabel": { "message": "OBSホスト" },
+  "ui_obsPortLabel": { "message": "OBSポート" },
+  "ui_obsPasswordLabel": { "message": "OBS WebSocketパスワード" },
+  "ui_obsPasswordPlaceholder": { "message": "Chrome再起動後は再入力" },
+  "ui_obsPasswordPersistLabel": { "message": "このデバイスにパスワードを保存する（Chrome再起動後も再入力不要にする）" },
+  "ui_obsPasswordWarning": { "message": "有効にすると、パスワードを暗号化せずこのPCに保存します。このPCのChromeプロファイルにアクセスできる第三者は、OBSの全操作（配信の停止・シーン変更など）が可能になります。共有PCでは有効にしないでください。既定（無効）ではChromeを再起動すると消えます。" },
+  "ui_obsMicInputLabel": { "message": "OBS上のマイク入力名（任意）" },
+  "ui_obsMicInputPlaceholder": { "message": "例: マイク / AUX" },
+  "ui_obsMicInputHint": { "message": "設定した場合、OBSでミュート中は字幕を送りません。" },
+  "ui_connectObsButton": { "message": "OBSへ接続" },
+  "ui_testCaptionButton": { "message": "テスト字幕" },
+  "ui_captionSettingsTitle": { "message": "字幕設定" },
+  "ui_maxPendingLabel": { "message": "最大待機数" },
+  "ui_maxAgeLabel": { "message": "最大待機時間（ms）" },
+  "ui_maxCharsLabel": { "message": "1字幕の最大文字数（暫定）" },
+  "ui_segmentIntervalLabel": { "message": "分割字幕の送信間隔（ms、0で無効）" },
+  "ui_segmentIntervalHint": { "message": "連続送信すると前の字幕が読み切れないうちに上書きされます（暫定値）。" },
+  "ui_interimFlushLabel": { "message": "発話途中の区切り文字数（0で無効）" },
+  "ui_interimFlushHint": { "message": "長い発話を認識確定前にこの文字数ごとに区切り、先に翻訳へ回します。表示は速くなりますが、確定前の文で区切るため区切り付近の訳が不自然になることがあります（暫定値）。" },
+  "ui_replacementsLabel": { "message": "固有名詞置換（JSON）" },
+  "ui_saveSettingsButton": { "message": "設定を保存" },
+  "ui_previewTitle": { "message": "認識プレビュー" },
+  "ui_previewInterimLabel": { "message": "途中認識" },
+  "ui_previewFinalLabel": { "message": "確定した入力" },
+  "ui_previewTranslatedLabel": { "message": "送出候補の翻訳" },
+  "ui_startButton": { "message": "CCを開始" },
+  "ui_stopButton": { "message": "停止" },
+  "ui_eventsTitle": { "message": "イベント" },
+  "ui_clearLogButton": { "message": "消去" },
+  "ui_privacyNote": { "message": "通常のChrome音声認識では、音声が認識サービスへ送信される場合があります。翻訳はChrome内蔵Translator APIを使用し、字幕本文は既定で保存しません。" },
+  "ui_defaultMicOption": { "message": "既定のマイク" },
+
+  "log_settingsSaved": { "message": "設定を保存しました" },
+  "log_interimFlushed": {
+    "message": "長い発話を途中で区切って翻訳へ回しました（$CHARS$文字）",
+    "placeholders": { "chars": { "content": "$1" } }
+  },
+  "log_captionProcessFailed": {
+    "message": "字幕処理に失敗: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_captionDropped": {
+    "message": "字幕を破棄しました: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_translatedCaptionDropped": {
+    "message": "翻訳字幕を送らず破棄しました: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_captionSendFailed": {
+    "message": "字幕を送信できませんでした: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_captionsSent": {
+    "message": "翻訳字幕を送信しました（$COUNT$件）",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "log_obsConnected": {
+    "message": "OBSへ接続しました: $URL$",
+    "placeholders": { "url": { "content": "$1" } }
+  },
+  "log_obsStatusFetchFailed": {
+    "message": "OBS状態を取得できません: $REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "log_micPermissionInProgress": { "message": "マイクの許可処理を実行中です。しばらくお待ちください" },
+  "log_micHelperOpened": { "message": "マイク許可用のタブを開きました。表示されるダイアログで「許可」を選んでください" },
+  "log_micHelperClosed": { "message": "マイク許可用のタブが閉じられました。許可されていません" },
+  "log_micPermissionIncomplete": { "message": "マイクの許可が完了しませんでした。もう一度「更新・許可」を押すか、許可用タブの「もう一度許可を要求」を押してください" },
+  "log_micGranted": { "message": "マイクを許可しました" },
+  "log_ccStarted": {
+    "message": "CCを開始しました（$SOURCE$ → $TARGET$）",
+    "placeholders": { "source": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "log_ccStopped": { "message": "CCを停止しました" },
+  "log_testCaptionSent": { "message": "テスト字幕を送信しました" },
+  "log_extensionLoaded": { "message": "拡張を読み込みました" },
+  "log_obsPasswordSaved": { "message": "OBSパスワードをこのデバイスに保存しました" },
+  "log_obsPasswordRemoved": { "message": "保存済みのOBSパスワードをこのデバイスから削除しました" },
+
+  "micHelper_pageTitle": { "message": "マイクの許可 - Multilingual CC" },
+  "micHelper_heading": { "message": "マイクの許可" },
+  "micHelper_requesting": { "message": "マイクの許可を要求しています。表示されるダイアログで「許可」を選んでください。" },
+  "micHelper_retryButton": { "message": "もう一度許可を要求" },
+  "micHelper_autoCloseNote": { "message": "許可が完了するとこのタブは自動的に閉じます。閉じない場合は、このタブを手動で閉じてください。" },
+  "micHelper_granted": { "message": "マイクを許可しました。このタブは自動的に閉じます。" },
+  "micHelper_errNotAllowed": { "message": "マイクがブロックされています。chrome://settings/content/microphone でこの拡張機能を「許可」に変更してから、下のボタンでもう一度お試しください。" },
+  "micHelper_errNotFound": { "message": "利用できるマイクが見つかりませんでした。マイクを接続してから、下のボタンでもう一度お試しください。" },
+  "micHelper_errMediaUnavailable": { "message": "このブラウザではマイク機能を利用できません。" },
+  "micHelper_errGeneric": {
+    "message": "マイクを許可できませんでした（$ERRORNAME$）。下のボタンでもう一度お試しください。",
+    "placeholders": { "errorname": { "content": "$1" } }
+  }
+}

@@ -116,6 +116,9 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `src/permission/mic-permission-flow.js` | Side Panelのマイク許可プロンプト問題を回避する判断ロジック（純粋関数） |
 | `src/permission/mic-permission.html` / `mic-permission.js` | マイク許可を通常タブとして要求する独立ページ |
 | `src/translation/chrome-translator.js` | Translator APIの可用性確認、初期化、ダウンロード進捗、翻訳 |
+| `src/translation/language-catalog.js` | 言語選択UIの単一ソース（select用オプション・保存値の解決・swap・可用性表示キー、すべて純粋関数） |
+| `src/i18n/i18n.js` | `chrome.i18n.getMessage`の薄いラッパーと`data-i18n*`属性を流し込むDOMウォーカー |
+| `_locales/en/`, `_locales/ja/` | 拡張UI自体の表示言語カタログ（`chrome.i18n`、Chromeの表示言語に自動追従） |
 | `src/captions/caption-queue.js` | 1件ずつ処理する有界FIFO、期限切れ・overflow処理 |
 | `src/captions/caption-policy.js` | 正規化、日本語混入拒否、重複排除、置換、長文分割 |
 | `src/captions/caption-pacer.js` | 分割字幕・連続発話間の送信間隔（ペーシング） |
@@ -330,6 +333,24 @@ OBS再接続処理を変更する場合、古い`ObsCaptionOutput`やタイマ�
 - チャンクごとに独立したキュー項目になるため、翻訳が追いつかない状況では`maxPending`超過で中間チャンクが落ちる可能性があります（14節の「最新字幕を優先し、遅れた字幕を後からまとめて送らない」方針どおりの挙動）。
 - `interimFlushChars`既定値`40`（`sourceChunkChars`と同一）と`safetyMarginChars`既定値`10`はいずれも暫定値です。実機のja-JP暫定テキストの訂正パターン・句読点の出現頻度を確認してから確定してください。
 - 音声認識の`restarting`/`error`/`fatal-error`/`stopped`状態遷移では`InterimCommitter.reset()`を呼び、未確定の末尾を破棄します（Chromeは再開をまたいで確定しないため）。既に投入済みのチャンクはそのまま残ります。これは今までの「再開時に発話全体が失われる」動作からの改善です。
+
+### 9.11 言語選択UI（select化）と拡張UI自体のi18n（対応済み）
+
+issue #6で「認識言語」「翻訳先」のテキスト入力+`<datalist>`による選択自体は実装済みだったが、(a) 実際にサポートされる言語ペアかどうかが開始ボタンを押すまで分からない、(b) サイドパネルUI自体（ラベル・ボタン・イベントログ）が日本語ハードコードだった、という2点をこの節で解消した。
+
+**言語選択UI（`src/translation/language-catalog.js`）**:
+
+- `<select>`+末尾の「その他（手入力）」オプションという構成。純粋な`<select>`のみだと、カタログにない値（Chromeが新たにサポートした言語や、カタログ未収録の値）を保存済みの既存ユーザー設定が無言でデフォルトへ化ける。`resolveSelectValue()`が保存値をカタログへ大文字小文字非依存で一致させ、一致しなければ「その他」+テキスト欄へフォールバックする。これがそのまま設定移行になっている。
+- 入れ替え（swap）ボタンはベストエフォート。BCP47認識ロケールとTranslator APIタグは非対称（`en`のTranslatorタグは`en-US`にも`en-GB`にもなり得る）なため、`swapLanguagePair()`は認識ロケール→翻訳先を既存の`toTranslatorLanguageTag()`で決め、逆方向はカタログの代表ロケール（`en`→`en-US`など）にフォールバックする。`en-GB`を選んで2回入れ替えると`en-US`に化けるのは既知の仕様（`tests/language-catalog.test.js`で固定済み）。
+- 言語ペア変更のたびに`chrome-translator.js`の`queryTranslatorAvailability()`（`Translator.availability()`の薄いラッパー、`ChromeTranslator`インスタンス不要）を呼び、「利用可能／要ダウンロード／利用不可」等をその場に表示する。**開始ボタンは無効化しない** — `availability`が`unknown`になる環境があり、`startCaptions()`側の既存fail-closedチェックが最終防衛線であることに変わりはないため、事前表示はあくまで目安。
+- 言語名ラベル（「日本語」「English」等）はendonym（自称名）テーブルとしてカタログに直接持たせ、i18nメッセージカタログには入れていない。UIの表示言語が変わっても言語名自体は変わらないため。
+
+**拡張UI自体のi18n（`src/i18n/i18n.js` + `_locales/`）**:
+
+- `chrome.i18n.getMessage()`は実行時に別ロケールへ切り替える公式手段がないため、UI表示言語は**Chromeのブラウザ表示言語に自動追従**するのみとし、拡張内切り替えUIは作っていない（切替の反映にはChrome再起動が必要）。将来自前ローダー（`fetch(chrome.runtime.getURL("_locales/<lang>/messages.json"))`）へ拡張する場合に備え、メッセージ取得は`createTranslator({ getMessage })`という差し替え可能な形にラップしてある。
+- `chrome.i18n`は追加の権限を必要としない。`tests/manifest.test.js`の`permissions`最小集合アサーションは変更していない。
+- `src/permission/mic-permission-flow.js`のような`chrome.*`非依存の純粋モジュールには、文字列そのものではなく`{ key, substitutions }`を返させ、実際の`t(key, substitutions)`呼び出しはDOM側（`mic-permission.js`）に置いている（`helperErrorMessage()`）。Nodeテストがchromeなしで動く前提を崩さないため。
+- `tests/i18n-messages.test.js`が en/ja のキー集合一致・プレースホルダ整合・`src/`配下で参照されているキーが両カタログに存在することを機械的に検証する。新しい文言を追加する際は、両方のロケールファイルに同じキーを追加すること（このテストが片方だけの追加を検出する）。
 
 ## 10. 次の担当者が行う作業順
 

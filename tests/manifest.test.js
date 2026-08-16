@@ -22,3 +22,26 @@ test("manifest entry points exist", async () => {
     await access(new URL(`../${path}`, import.meta.url));
   }
 });
+
+// chrome.i18n needs no extra permission (see manifest permissions test
+// above, which is unaffected), but default_locale + a matching messages.json
+// are both required or the whole extension fails to load.
+test("manifest declares a default_locale backed by a messages.json", async () => {
+  assert.equal(typeof manifest.default_locale, "string");
+  assert.ok(manifest.default_locale.length > 0);
+  const messagesPath = `_locales/${manifest.default_locale}/messages.json`;
+  await access(new URL(`../${messagesPath}`, import.meta.url));
+  const messages = JSON.parse(await readFile(new URL(`../${messagesPath}`, import.meta.url), "utf8"));
+  assert.ok(messages.extName?.message, "extName message missing");
+});
+
+test("every __MSG_x__ reference in manifest.json resolves in the default locale", async () => {
+  const messages = JSON.parse(
+    await readFile(new URL(`../_locales/${manifest.default_locale}/messages.json`, import.meta.url), "utf8"));
+  const manifestText = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
+  const referenced = [...manifestText.matchAll(/__MSG_([A-Za-z0-9_@]+)__/g)].map((match) => match[1]);
+  assert.ok(referenced.length > 0, "expected at least one __MSG_x__ reference in manifest.json");
+  for (const key of referenced) {
+    assert.ok(messages[key]?.message, `manifest references __MSG_${key}__ but _locales/${manifest.default_locale}/messages.json has no such key`);
+  }
+});

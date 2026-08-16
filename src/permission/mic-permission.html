@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>マイクの許可 - Multilingual CC</title>
+  <title data-i18n="micHelper_pageTitle">Microphone permission - Multilingual CC</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
     h1 { font-size: 1.2rem; }
@@ -11,10 +11,10 @@
   </style>
 </head>
 <body>
-  <h1>マイクの許可</h1>
-  <p id="permissionStatus">マイクの許可を要求しています。表示されるダイアログで「許可」を選んでください。</p>
-  <button id="retryButton" type="button" hidden>もう一度許可を要求</button>
-  <p><small>許可が完了するとこのタブは自動的に閉じます。閉じない場合は、このタブを手動で閉じてください。</small></p>
+  <h1 data-i18n="micHelper_heading">Microphone permission</h1>
+  <p id="permissionStatus" data-i18n="micHelper_requesting">Requesting microphone permission. Choose "Allow" in the dialog that appears.</p>
+  <button id="retryButton" type="button" hidden data-i18n="micHelper_retryButton">Request permission again</button>
+  <p><small data-i18n="micHelper_autoCloseNote">This tab closes automatically once permission is granted. If it doesn't, close it manually.</small></p>
   <script type="module" src="mic-permission.js"></script>
 </body>
 </html>

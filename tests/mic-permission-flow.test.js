@@ -4,7 +4,7 @@ import {
   awaitHelperCompletion,
   buildHelperResultMessage,
   decideMicPermissionAction,
-  helperErrorLabel,
+  helperErrorMessage,
   isMicPermissionResultMessage,
   queryMicrophonePermission,
   requestMicrophoneOnce,
@@ -96,9 +96,13 @@ test("buildHelperResultMessage defaults a missing errorName on failure", () => {
   assert.deepEqual(buildHelperResultMessage({ ok: false }), { type: "mic-permission-result", granted: false, errorName: "UnknownError" });
 });
 
-test("helperErrorLabel gives distinct, identifiable copy per error", () => {
-  assert.match(helperErrorLabel("SomeUnknownError"), /SomeUnknownError/);
-  assert.notEqual(helperErrorLabel("NotAllowedError"), helperErrorLabel("NotFoundError"));
+test("helperErrorMessage gives a distinct, i18n-ready key per error", () => {
+  assert.deepEqual(helperErrorMessage("SomeUnknownError"), { key: "micHelper_errGeneric", substitutions: ["SomeUnknownError"] });
+  const notAllowed = helperErrorMessage("NotAllowedError");
+  const notFound = helperErrorMessage("NotFoundError");
+  assert.notEqual(notAllowed.key, notFound.key);
+  assert.deepEqual(notAllowed, { key: "micHelper_errNotAllowed", substitutions: [] });
+  assert.deepEqual(notFound, { key: "micHelper_errNotFound", substitutions: [] });
 });
 
 function neverWait() {

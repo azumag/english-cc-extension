@@ -58,6 +58,15 @@ input, select, textarea {
 textarea { resize: vertical; }
 .inline-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.language-pair { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 8px; margin-top: 10px; }
+.language-pair label { margin-top: 0; }
+.language-pair input[type="text"] { margin-top: 6px; }
+.swap-button { padding: 9px 10px; align-self: center; font-size: 1rem; line-height: 1; }
+.pair-availability { margin-top: 8px; font-size: .8rem; color: var(--muted); }
+.pair-availability[data-state="available"] { color: var(--success); }
+.pair-availability[data-state="downloadable"],
+.pair-availability[data-state="downloading"] { color: var(--warn); }
+.pair-availability[data-state="unavailable"] { color: var(--danger); }
 button { border: 0; border-radius: 8px; padding: 9px 12px; cursor: pointer; font-weight: 650; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .primary { background: var(--accent); color: #06111b; }

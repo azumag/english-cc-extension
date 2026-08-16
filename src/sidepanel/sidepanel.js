@@ -12,24 +12,38 @@ import {
 } from "../permission/mic-permission-flow.js";
 import { InterimCommitter } from "../speech/interim-committer.js";
 import { SpeechRecognizer } from "../speech/speech-recognizer.js";
-import { ChromeTranslator } from "../translation/chrome-translator.js";
+import { ChromeTranslator, queryTranslatorAvailability } from "../translation/chrome-translator.js";
 import { targetAllowsCjkText, toTranslatorLanguageTag } from "../translation/language-tags.js";
+import {
+  CUSTOM_LANGUAGE_VALUE,
+  pairAvailabilityMessageKey,
+  readLanguageControl,
+  recognitionLanguageOptions,
+  resolveSelectValue,
+  swapLanguagePair,
+  targetLanguageOptions,
+} from "../translation/language-catalog.js";
+import { applyTranslations, createTranslator } from "../i18n/i18n.js";
 import { RingLogger } from "../shared/logger.js";
 import { normalizeSettings } from "../shared/contracts.js";
 import { loadObsPassword, loadSettings, saveObsPassword, saveSettings } from "../settings/settings-store.js";
 
+const t = createTranslator({ getMessage: globalThis.chrome?.i18n?.getMessage?.bind(globalThis.chrome.i18n) });
+
 // Matches the fatal errors SpeechRecognizer stops retrying on
-// (see src/speech/speech-recognizer.js FATAL_ERRORS) with a Japanese
-// message telling the user what manual step unblocks a restart.
+// (see src/speech/speech-recognizer.js FATAL_ERRORS) with a message
+// telling the user what manual step unblocks a restart.
 const FATAL_ERROR_LABELS = {
-  "not-allowed": "マイク権限を許可してから再開してください",
-  "service-not-allowed": "音声認識サービスが許可されていません。設定を確認してから再開してください",
-  "language-not-supported": "選択した認識言語は音声認識でサポートされていません",
+  "not-allowed": t("err_fatalNotAllowed"),
+  "service-not-allowed": t("err_fatalServiceNotAllowed"),
+  "language-not-supported": t("err_fatalLanguageNotSupported"),
 };
 
 const elements = Object.fromEntries([
   "overallStatus", "chromeStatus", "microphoneStatus", "recognitionStatus", "translationStatus", "obsStatus", "streamStatus",
-  "microphoneSelect", "refreshMicrophonesButton", "recognitionLanguageInput", "targetLanguageInput",
+  "microphoneSelect", "refreshMicrophonesButton",
+  "recognitionLanguageSelect", "recognitionLanguageCustomInput", "targetLanguageSelect", "targetLanguageCustomInput",
+  "swapLanguagesButton", "pairAvailability",
   "obsHostInput", "obsPortInput", "obsPasswordInput", "obsPasswordPersistInput", "obsMicrophoneInputName",
   "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "segmentIntervalInput", "interimFlushCharsInput", "replacementsInput",
   "saveSettingsButton", "interimPreview", "japanesePreview", "englishPreview", "startButton", "stopButton", "clearLogButton", "eventLog",
@@ -78,15 +92,111 @@ function parseReplacements() {
   if (!raw) return {};
   const value = JSON.parse(raw);
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError("固有名詞置換はJSONオブジェクトで指定してください");
+    throw new TypeError(t("err_replacementsInvalidJson"));
   }
   return value;
 }
 
+// --- Language pickers -------------------------------------------------
+// Each <select> is populated from src/translation/language-catalog.js plus
+// a trailing "custom" option; picking it reveals the adjacent free-text
+// input. See CUSTOM_LANGUAGE_VALUE / resolveSelectValue / readLanguageControl
+// there for why a pure escape hatch exists (Chrome may support language
+// pairs the catalog doesn't list, and it must never silently drop a saved
+// setting that isn't in the catalog).
+
+function populateLanguageSelect(select, options) {
+  const customOption = document.createElement("option");
+  customOption.value = CUSTOM_LANGUAGE_VALUE;
+  customOption.textContent = t("ui_languageCustomOption");
+  select.replaceChildren(...options.map((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.value;
+    option.textContent = entry.label;
+    return option;
+  }), customOption);
+}
+
+function toggleCustomInputVisibility(select, customInput) {
+  customInput.hidden = select.value !== CUSTOM_LANGUAGE_VALUE;
+}
+
+function setLanguageControl(select, customInput, storedValue, options) {
+  const resolved = resolveSelectValue(storedValue, options);
+  select.value = resolved.selectValue;
+  customInput.value = resolved.customValue;
+  toggleCustomInputVisibility(select, customInput);
+}
+
+function readRecognitionLanguage() {
+  return readLanguageControl({
+    selectValue: elements.recognitionLanguageSelect.value,
+    customValue: elements.recognitionLanguageCustomInput.value,
+  });
+}
+
+function readTargetLanguage() {
+  return readLanguageControl({
+    selectValue: elements.targetLanguageSelect.value,
+    customValue: elements.targetLanguageCustomInput.value,
+  });
+}
+
+function setPairAvailability(pairState, text) {
+  elements.pairAvailability.dataset.state = pairState;
+  elements.pairAvailability.textContent = text;
+}
+
+// Advisory only — it never disables the start button. Translator.availability()
+// can report "unknown" in some Chrome versions, and startCaptions() keeps its
+// own fail-closed check, so this is purely a heads-up before the user commits.
+let pairAvailabilityToken = 0;
+
+async function updatePairAvailability() {
+  const token = ++pairAvailabilityToken;
+  const sourceTag = toTranslatorLanguageTag(readRecognitionLanguage());
+  const targetTag = toTranslatorLanguageTag(readTargetLanguage());
+
+  if (!sourceTag || !targetTag) {
+    // Distinct from "unknown" below: this is an empty custom-language
+    // input, not Chrome being unable to answer the availability query.
+    setPairAvailability("incomplete", t("pair_incomplete"));
+    return;
+  }
+  if (sourceTag === targetTag) {
+    setPairAvailability("same-language", t(pairAvailabilityMessageKey("same-language")));
+    return;
+  }
+
+  setPairAvailability("checking", t("pair_checking"));
+  let availability;
+  try {
+    availability = await queryTranslatorAvailability(globalThis, { sourceLanguage: sourceTag, targetLanguage: targetTag });
+  } catch {
+    availability = "unknown";
+  }
+  // A newer check already superseded this one (another change landed while
+  // this await was in flight) — discard the stale result rather than let it
+  // overwrite what the user is now looking at.
+  if (token !== pairAvailabilityToken) return;
+  setPairAvailability(availability, t(pairAvailabilityMessageKey(availability)));
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+const debouncedUpdatePairAvailability = debounce(() => { void updatePairAvailability(); }, 300);
+
+// --- Settings form ------------------------------------------------------
+
 function readFormSettings() {
   return normalizeSettings({
-    recognitionLanguage: elements.recognitionLanguageInput.value.trim(),
-    targetLanguage: elements.targetLanguageInput.value.trim(),
+    recognitionLanguage: readRecognitionLanguage(),
+    targetLanguage: readTargetLanguage(),
     microphoneDeviceId: elements.microphoneSelect.value,
     obsHost: elements.obsHostInput.value,
     obsPort: Number(elements.obsPortInput.value),
@@ -103,8 +213,8 @@ function readFormSettings() {
 }
 
 function populateSettings(settings) {
-  elements.recognitionLanguageInput.value = settings.recognitionLanguage;
-  elements.targetLanguageInput.value = settings.targetLanguage;
+  setLanguageControl(elements.recognitionLanguageSelect, elements.recognitionLanguageCustomInput, settings.recognitionLanguage, recognitionLanguageOptions());
+  setLanguageControl(elements.targetLanguageSelect, elements.targetLanguageCustomInput, settings.targetLanguage, targetLanguageOptions());
   elements.obsHostInput.value = settings.obsHost;
   elements.obsPortInput.value = settings.obsPort;
   elements.obsPasswordPersistInput.checked = settings.obsPasswordPersistLocal;
@@ -123,26 +233,26 @@ async function persistSettings() {
   const settings = readFormSettings();
   state.settings = await saveSettings(settings);
   await saveObsPassword(elements.obsPasswordInput.value, { persistLocal: state.settings.obsPasswordPersistLocal });
-  logger.info("設定を保存しました");
+  logger.info(t("log_settingsSaved"));
   return state.settings;
 }
 
-function createTranslator(settings) {
+function createChromeTranslator(settings) {
   state.translator?.destroy();
   state.translator = new ChromeTranslator({
     sourceLanguage: toTranslatorLanguageTag(settings.recognitionLanguage),
     targetLanguage: toTranslatorLanguageTag(settings.targetLanguage),
     onStatus: (status) => {
       if (status.state === "downloading") {
-        setText("translationStatus", `ダウンロード ${Math.round((status.progress ?? 0) * 100)}%`);
+        setText("translationStatus", t("status_translationDownloading", [String(Math.round((status.progress ?? 0) * 100))]));
       } else if (status.state === "ready") {
-        setText("translationStatus", "利用可能");
+        setText("translationStatus", t("status_translationReady"));
       } else if (status.state === "initializing") {
-        setText("translationStatus", "準備中");
+        setText("translationStatus", t("status_translationInitializing"));
       } else if (status.state === "error") {
-        setText("translationStatus", "エラー");
+        setText("translationStatus", t("status_error"));
       } else {
-        setText("translationStatus", "未準備");
+        setText("translationStatus", t("status_notReady"));
       }
     },
   });
@@ -162,7 +272,7 @@ function createRecognizer(settings) {
       // is 0 or the utterance hasn't crossed the threshold yet.
       for (const chunk of state.interimCommitter.update(text)) {
         state.queue?.submit({ text: chunk, createdAt: Date.now() });
-        logger.info(`長い発話を途中で区切って翻訳へ回しました（${chunk.length}文字）`);
+        logger.info(t("log_interimFlushed", [String(chunk.length)]));
       }
     },
     onFinal: (text) => {
@@ -176,15 +286,15 @@ function createRecognizer(settings) {
     },
     onState: (status) => {
       const labels = {
-        recognizing: status.inputMode === "selected-track" ? "聞き取り中（選択マイク）" : "聞き取り中",
-        restarting: "再開待ち",
-        stopped: "停止",
-        error: "エラー",
-        "fallback-default-microphone": "既定マイクへ切替",
-        "fatal-error": FATAL_ERROR_LABELS[status.error] ?? "停止（要再操作）",
+        recognizing: status.inputMode === "selected-track" ? t("status_recognizingSelected") : t("status_recognizing"),
+        restarting: t("status_restarting"),
+        stopped: t("status_stopped"),
+        error: t("status_error"),
+        "fallback-default-microphone": t("status_fallbackDefaultMic"),
+        "fatal-error": FATAL_ERROR_LABELS[status.error] ?? t("status_fatalErrorDefault"),
       };
       setText("recognitionStatus", labels[status.state] ?? status.state);
-      if (status.state === "recognizing") setText("microphoneStatus", "許可済み");
+      if (status.state === "recognizing") setText("microphoneStatus", t("status_micGranted"));
       // Chrome never finalizes an utterance across a restart/stop, so any
       // uncommitted interim tail is unrecoverable — drop it rather than let
       // it bleed into whatever starts next. Chunks already flushed stand.
@@ -227,8 +337,8 @@ function createCaptionPipeline(settings) {
     maxPending: settings.maxPending,
     maxAgeMs: settings.maxAgeMs,
     onDrop: (_item, reason, error) => {
-      if (reason === "processor-error") logger.error(`字幕処理に失敗: ${error?.message ?? "unknown error"}`);
-      else logger.warn(`字幕を破棄しました: ${reason}`);
+      if (reason === "processor-error") logger.error(t("log_captionProcessFailed", [error?.message ?? "unknown error"]));
+      else logger.warn(t("log_captionDropped", [reason]));
     },
     processor: async (item) => {
       if (!state.running) return;
@@ -236,7 +346,7 @@ function createCaptionPipeline(settings) {
       elements.englishPreview.textContent = translated;
       const prepared = state.policy.prepare({ text: translated, createdAt: item.createdAt });
       if (!prepared.ok) {
-        logger.warn(`翻訳字幕を送らず破棄しました: ${prepared.reason}`);
+        logger.warn(t("log_translatedCaptionDropped", [prepared.reason]));
         return;
       }
 
@@ -248,14 +358,14 @@ function createCaptionPipeline(settings) {
           // "aborted" means the user stopped CC (or a fatal error stopped
           // it) while this segment was waiting out the pacing interval —
           // expected, not worth a warning.
-          if (result.reason !== "aborted") logger.warn(`字幕を送信できませんでした: ${result.reason}`);
+          if (result.reason !== "aborted") logger.warn(t("log_captionSendFailed", [result.reason]));
           return;
         }
         sentCount += 1;
       }
       if (sentCount === prepared.segments.length) {
         state.policy.markSent(prepared.canonicalText);
-        logger.info(`翻訳字幕を送信しました（${sentCount}件）`);
+        logger.info(t("log_captionsSent", [String(sentCount)]));
       }
     },
   });
@@ -274,13 +384,13 @@ async function connectObs() {
     password,
     onState: (status) => {
       const labels = {
-        connecting: "接続中",
-        connected: "接続済み",
-        disconnected: "未接続",
-        error: "エラー",
+        connecting: t("status_obsConnecting"),
+        connected: t("status_obsConnected"),
+        disconnected: t("status_disconnected"),
+        error: t("status_error"),
       };
       setText("obsStatus", labels[status.state] ?? status.state);
-      if (status.state === "error") logger.error(status.error?.message ?? "OBS接続エラー");
+      if (status.state === "error") logger.error(status.error?.message ?? t("err_obsConnectError"));
     },
   });
 
@@ -298,7 +408,7 @@ async function connectObs() {
   state.pacer?.setOutput(state.output);
   await state.output.initialize();
   elements.testCaptionButton.disabled = false;
-  logger.info(`OBSへ接続しました: ${url}`);
+  logger.info(t("log_obsConnected", [url]));
   await refreshObsStatus();
   state.statusTimer = setInterval(() => { void refreshObsStatus(); }, 2500);
 }
@@ -308,11 +418,11 @@ async function refreshObsStatus() {
   try {
     const status = await state.output.status();
     setText("streamStatus", status.streaming ? "LIVE" : "OFFLINE");
-    if (status.microphoneMuted === true) setText("microphoneStatus", "OBSでミュート");
-    else if (state.running) setText("microphoneStatus", "ON");
+    if (status.microphoneMuted === true) setText("microphoneStatus", t("status_micMutedInObs"));
+    else if (state.running) setText("microphoneStatus", t("status_micOn"));
   } catch (error) {
-    setText("streamStatus", "取得失敗");
-    logger.warn(`OBS状態を取得できません: ${error.message}`);
+    setText("streamStatus", t("status_streamFetchFailed"));
+    logger.warn(t("log_obsStatusFetchFailed", [error.message]));
   }
 }
 
@@ -332,7 +442,7 @@ function subscribeMicPermissionResult(handler) {
 async function ensureMicrophonePermission(recognizer) {
   if (state.micPermissionWaiting) {
     state.micHelperWindow?.focus();
-    logger.info("マイクの許可処理を実行中です。しばらくお待ちください");
+    logger.info(t("log_micPermissionInProgress"));
     return false;
   }
   // Set before any await, not just once a helper tab actually opens: the
@@ -345,15 +455,15 @@ async function ensureMicrophonePermission(recognizer) {
     const action = decideMicPermissionAction(permissionState);
 
     if (action === "explain-denied") {
-      setText("microphoneStatus", "ブロック中");
-      logger.error("マイクがブロックされています。chrome://settings/content/microphone でこの拡張機能を「許可」に変更してから、もう一度「更新・許可」を押してください");
+      setText("microphoneStatus", t("status_micBlocked"));
+      logger.error(t("err_micBlocked"));
       return false;
     }
 
     if (action === "request-direct") {
       try {
         await recognizer.requestPermission(elements.microphoneSelect.value || "");
-        setText("microphoneStatus", "許可済み");
+        setText("microphoneStatus", t("status_micGranted"));
         return true;
       } catch (error) {
         if (!shouldOpenHelperAfterFailure({ permissionState, errorName: error?.name })) throw error;
@@ -364,12 +474,12 @@ async function ensureMicrophonePermission(recognizer) {
     const helperUrl = chrome.runtime.getURL("src/permission/mic-permission.html");
     state.micHelperWindow = window.open(helperUrl);
     if (!state.micHelperWindow) {
-      logger.error("マイク許可用のタブを開けませんでした。もう一度「更新・許可」を押してください");
+      logger.error(t("err_micHelperOpenFailed"));
       return false;
     }
 
-    setText("microphoneStatus", "許可待ち（別タブ）");
-    logger.info("マイク許可用のタブを開きました。表示されるダイアログで「許可」を選んでください");
+    setText("microphoneStatus", t("status_micWaitingHelper"));
+    logger.info(t("log_micHelperOpened"));
 
     const result = await awaitHelperCompletion({
       isClosed: () => state.micHelperWindow?.closed === true,
@@ -381,11 +491,11 @@ async function ensureMicrophonePermission(recognizer) {
       // self-closes, so a message normally wins, but re-check once in case
       // the tab was closed exactly as the grant landed.
       if ((await queryMicrophonePermission(navigator.permissions)) === "granted") {
-        setText("microphoneStatus", "許可済み");
+        setText("microphoneStatus", t("status_micGranted"));
         return true;
       }
-      setText("microphoneStatus", "未許可");
-      logger.warn("マイク許可用のタブが閉じられました。許可されていません");
+      setText("microphoneStatus", t("status_unauthorized"));
+      logger.warn(t("log_micHelperClosed"));
       return false;
     }
 
@@ -395,11 +505,11 @@ async function ensureMicrophonePermission(recognizer) {
       // "prompt", not "denied" — re-check so that case isn't mislabeled as
       // a hard block with settings instructions that don't actually apply.
       if ((await queryMicrophonePermission(navigator.permissions)) === "denied") {
-        setText("microphoneStatus", "ブロック中");
-        logger.error("マイクがブロックされています。chrome://settings/content/microphone でこの拡張機能を「許可」に変更してから、もう一度「更新・許可」を押してください");
+        setText("microphoneStatus", t("status_micBlocked"));
+        logger.error(t("err_micBlocked"));
       } else {
-        setText("microphoneStatus", "未許可");
-        logger.warn("マイクの許可が完了しませんでした。もう一度「更新・許可」を押すか、許可用タブの「もう一度許可を要求」を押してください");
+        setText("microphoneStatus", t("status_unauthorized"));
+        logger.warn(t("log_micPermissionIncomplete"));
       }
       return false;
     }
@@ -407,8 +517,8 @@ async function ensureMicrophonePermission(recognizer) {
     // result.outcome === "granted": the origin permission is granted now,
     // so this retry in the side panel succeeds silently (no second prompt).
     await recognizer.requestPermission(elements.microphoneSelect.value || "");
-    setText("microphoneStatus", "許可済み");
-    logger.info("マイクを許可しました");
+    setText("microphoneStatus", t("status_micGranted"));
+    logger.info(t("log_micGranted"));
     return true;
   } finally {
     state.micPermissionWaiting = false;
@@ -432,7 +542,7 @@ async function refreshMicrophones({ requestPermission = false } = {}) {
   if (!devices.length) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = "既定のマイク";
+    option.textContent = t("ui_defaultMicOption");
     elements.microphoneSelect.append(option);
   }
   if ([...elements.microphoneSelect.options].some((option) => option.value === selected)) {
@@ -445,7 +555,7 @@ async function startCaptions() {
     const settings = await persistSettings();
     if (!state.obsClient?.connected) await connectObs();
     if (state.output) state.output.microphoneInputName = settings.obsMicrophoneInputName;
-    createTranslator(settings);
+    createChromeTranslator(settings);
     createRecognizer(settings);
     createCaptionPipeline(settings);
 
@@ -453,7 +563,7 @@ async function startCaptions() {
     const targetLanguage = toTranslatorLanguageTag(settings.targetLanguage);
     const availability = await state.translator.availability();
     if (availability === "unavailable") {
-      throw new Error(`${sourceLanguage}→${targetLanguage} のChrome Translator APIを利用できません`);
+      throw new Error(t("err_translatorPairUnavailable", [sourceLanguage, targetLanguage]));
     }
     await state.translator.initialize();
 
@@ -461,11 +571,11 @@ async function startCaptions() {
     await state.recognizer.start({ deviceId: settings.microphoneDeviceId });
     elements.startButton.disabled = true;
     elements.stopButton.disabled = false;
-    setOverallStatus("running", "送出中");
-    logger.info(`CCを開始しました（${settings.recognitionLanguage} → ${targetLanguage}）`);
+    setOverallStatus("running", t("status_sending"));
+    logger.info(t("log_ccStarted", [settings.recognitionLanguage, targetLanguage]));
   } catch (error) {
     state.running = false;
-    setOverallStatus("error", "開始失敗");
+    setOverallStatus("error", t("status_startFailed"));
     logger.error(error.message);
     await state.recognizer?.stop();
   }
@@ -477,37 +587,62 @@ async function stopCaptions() {
   await state.recognizer?.stop();
   elements.startButton.disabled = false;
   elements.stopButton.disabled = true;
-  setOverallStatus("idle", "停止中");
-  logger.info("CCを停止しました");
+  setOverallStatus("idle", t("status_stopped"));
+  logger.info(t("log_ccStopped"));
 }
 
 async function sendTestCaption() {
   try {
-    if (!state.output) throw new Error("先にOBSへ接続してください");
+    if (!state.output) throw new Error(t("err_obsNotConnected"));
     const result = await state.output.sendCaption("Closed captions are ready.", { bypassMicrophoneGate: true });
-    if (!result.sent) throw new Error(`テスト字幕を送信できません: ${result.reason}`);
-    logger.info("テスト字幕を送信しました");
+    if (!result.sent) throw new Error(t("err_testCaptionFailed", [result.reason]));
+    logger.info(t("log_testCaptionSent"));
   } catch (error) {
     logger.error(error.message);
   }
 }
 
 async function initialize() {
+  document.documentElement.lang = globalThis.chrome?.i18n?.getUILanguage?.() ?? document.documentElement.lang;
+  applyTranslations(document, t);
+  populateLanguageSelect(elements.recognitionLanguageSelect, recognitionLanguageOptions());
+  populateLanguageSelect(elements.targetLanguageSelect, targetLanguageOptions());
+
   state.settings = await loadSettings();
   populateSettings(state.settings);
+  void updatePairAvailability();
   elements.obsPasswordInput.value = await loadObsPassword();
-  const translator = createTranslator(state.settings);
+  const translator = createChromeTranslator(state.settings);
   const recognizer = createRecognizer(state.settings);
   const probe = recognizer.probe();
-  setText("chromeStatus", translator.supported && probe.speechRecognition ? "対応" : "一部非対応");
+  setText("chromeStatus", translator.supported && probe.speechRecognition ? t("status_chromeSupported") : t("status_chromePartial"));
   const availability = await translator.availability().catch(() => "unknown");
-  setText("translationStatus", availability === "available" ? "利用可能" : availability === "unavailable" ? "利用不可" : "初回準備が必要");
+  setText("translationStatus", availability === "available" ? t("status_translationReady") : availability === "unavailable" ? t("status_translationUnavailable") : t("status_translationNeedsSetup"));
   await refreshMicrophones();
-  logger.info("拡張を読み込みました");
+  logger.info(t("log_extensionLoaded"));
 }
 
 elements.refreshMicrophonesButton.addEventListener("click", () => {
   void refreshMicrophones({ requestPermission: true }).catch((error) => logger.error(error.message));
+});
+elements.recognitionLanguageSelect.addEventListener("change", () => {
+  toggleCustomInputVisibility(elements.recognitionLanguageSelect, elements.recognitionLanguageCustomInput);
+  void updatePairAvailability();
+});
+elements.targetLanguageSelect.addEventListener("change", () => {
+  toggleCustomInputVisibility(elements.targetLanguageSelect, elements.targetLanguageCustomInput);
+  void updatePairAvailability();
+});
+elements.recognitionLanguageCustomInput.addEventListener("input", debouncedUpdatePairAvailability);
+elements.targetLanguageCustomInput.addEventListener("input", debouncedUpdatePairAvailability);
+elements.swapLanguagesButton.addEventListener("click", () => {
+  const swapped = swapLanguagePair({
+    recognitionLanguage: readRecognitionLanguage(),
+    targetLanguage: readTargetLanguage(),
+  });
+  setLanguageControl(elements.recognitionLanguageSelect, elements.recognitionLanguageCustomInput, swapped.recognitionLanguage, recognitionLanguageOptions());
+  setLanguageControl(elements.targetLanguageSelect, elements.targetLanguageCustomInput, swapped.targetLanguage, targetLanguageOptions());
+  void updatePairAvailability();
 });
 elements.connectObsButton.addEventListener("click", () => {
   void connectObs().catch((error) => logger.error(error.message));
@@ -518,17 +653,15 @@ elements.saveSettingsButton.addEventListener("click", () => {
 });
 elements.obsPasswordPersistInput.addEventListener("change", () => {
   // Persists immediately in both directions, rather than waiting for
-  // "設定を保存": checking the box is itself the user's explicit consent to
-  // start storing the password on disk ("チェックマークを入れると保存され
-  // る"), and unchecking it must delete the on-disk copy right away so the
-  // settings flag and the actual chrome.storage.local mirror never drift
-  // apart (see docs/HANDOFF.md 6, item 2).
+  // "Save settings": checking the box is itself the user's explicit consent
+  // to start storing the password on disk, and unchecking it must delete
+  // the on-disk copy right away so the settings flag and the actual
+  // chrome.storage.local mirror never drift apart (see docs/HANDOFF.md 6,
+  // item 2).
   const persisting = elements.obsPasswordPersistInput.checked;
   void persistSettings()
     .then(() => {
-      logger.info(persisting
-        ? "OBSパスワードをこのデバイスに保存しました"
-        : "保存済みのOBSパスワードをこのデバイスから削除しました");
+      logger.info(persisting ? t("log_obsPasswordSaved") : t("log_obsPasswordRemoved"));
     })
     .catch((error) => logger.error(error.message));
 });
@@ -549,6 +682,6 @@ window.addEventListener("beforeunload", () => {
 });
 
 void initialize().catch((error) => {
-  setOverallStatus("error", "初期化失敗");
+  setOverallStatus("error", t("status_initFailed"));
   logger.error(error.message);
 });
