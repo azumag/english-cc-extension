@@ -1,171 +1,148 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Multilingual CC</title>
+  <title data-i18n="ui_appTitle">Multilingual CC</title>
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
   <header>
     <div>
-      <p class="eyebrow">Twitch via OBS</p>
-      <h1>Multilingual CC</h1>
+      <p class="eyebrow" data-i18n="ui_appEyebrow">Twitch via OBS</p>
+      <h1 data-i18n="ui_appTitle">Multilingual CC</h1>
     </div>
-    <span id="overallStatus" class="status status-idle">停止中</span>
+    <span id="overallStatus" class="status status-idle" data-i18n="status_stopped">Stopped</span>
   </header>
 
   <main>
-    <section class="card status-grid" aria-label="接続状態">
-      <div><span>Chrome</span><strong id="chromeStatus">確認中</strong></div>
-      <div><span>マイク</span><strong id="microphoneStatus">未許可</strong></div>
-      <div><span>音声認識</span><strong id="recognitionStatus">停止</strong></div>
-      <div><span>翻訳</span><strong id="translationStatus">未準備</strong></div>
-      <div><span>OBS</span><strong id="obsStatus">未接続</strong></div>
-      <div><span>配信</span><strong id="streamStatus">不明</strong></div>
+    <section class="card status-grid" data-i18n-aria-label="ui_statusGroupLabel" aria-label="Connection status">
+      <div><span>Chrome</span><strong id="chromeStatus" data-i18n="status_checking">Checking</strong></div>
+      <div><span data-i18n="ui_statusMicLabel">Microphone</span><strong id="microphoneStatus" data-i18n="status_unauthorized">Not authorized</strong></div>
+      <div><span data-i18n="ui_statusRecognitionLabel">Recognition</span><strong id="recognitionStatus" data-i18n="status_stopped">Stopped</strong></div>
+      <div><span data-i18n="ui_statusTranslationLabel">Translation</span><strong id="translationStatus" data-i18n="status_notReady">Not ready</strong></div>
+      <div><span>OBS</span><strong id="obsStatus" data-i18n="status_disconnected">Disconnected</strong></div>
+      <div><span data-i18n="ui_statusStreamLabel">Stream</span><strong id="streamStatus" data-i18n="status_unknown">Unknown</strong></div>
     </section>
 
     <section class="card">
-      <h2>入力とOBS</h2>
+      <h2 data-i18n="ui_sectionInputObsTitle">Input & OBS</h2>
       <label>
-        配信用マイク
+        <span data-i18n="ui_microphoneLabel">Streaming microphone</span>
         <span class="inline-field">
           <select id="microphoneSelect"></select>
-          <button id="refreshMicrophonesButton" type="button" class="secondary">更新・許可</button>
+          <button id="refreshMicrophonesButton" type="button" class="secondary" data-i18n="ui_refreshMicButton">Refresh & allow</button>
         </span>
       </label>
-      <small>マイク権限が未許可の場合、「更新・許可」で許可用のタブが開きます。表示されるダイアログで「許可」を選んでください。</small>
-      <div class="two-columns">
+      <small data-i18n="ui_micPermissionHint">If microphone permission isn't granted yet, "Refresh & allow" opens a tab to grant it. Choose "Allow" in the dialog that appears.</small>
+
+      <div class="language-pair">
         <label>
-          認識言語
-          <input id="recognitionLanguageInput" type="text" list="recognitionLanguageOptions" placeholder="ja-JP">
-          <datalist id="recognitionLanguageOptions">
-            <option value="ja-JP">日本語</option>
-            <option value="en-US">English (US)</option>
-            <option value="en-GB">English (UK)</option>
-            <option value="zh-CN">中文（简体）</option>
-            <option value="zh-TW">中文（繁體）</option>
-            <option value="ko-KR">한국어</option>
-            <option value="es-ES">Español</option>
-            <option value="fr-FR">Français</option>
-            <option value="de-DE">Deutsch</option>
-            <option value="pt-BR">Português</option>
-            <option value="it-IT">Italiano</option>
-            <option value="ru-RU">Русский</option>
-            <option value="uk-UA">Українська</option>
-          </datalist>
+          <span data-i18n="ui_recognitionLanguageLabel">Recognition language</span>
+          <select id="recognitionLanguageSelect"></select>
+          <input id="recognitionLanguageCustomInput" type="text" data-i18n-placeholder="ui_recognitionLanguageCustomPlaceholder" placeholder="e.g. ja-JP" hidden>
         </label>
+        <button id="swapLanguagesButton" type="button" class="secondary swap-button" data-i18n-aria-label="ui_swapLanguagesButton" data-i18n-title="ui_swapLanguagesButton" aria-label="Swap recognition and target languages" title="Swap recognition and target languages">⇄</button>
         <label>
-          翻訳先
-          <input id="targetLanguageInput" type="text" list="targetLanguageOptions" placeholder="en">
-          <datalist id="targetLanguageOptions">
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-            <option value="zh">中文（简体）</option>
-            <option value="zh-Hant">中文（繁體）</option>
-            <option value="ko">한국어</option>
-            <option value="es">Español</option>
-            <option value="fr">Français</option>
-            <option value="de">Deutsch</option>
-            <option value="pt">Português</option>
-            <option value="it">Italiano</option>
-            <option value="ru">Русский</option>
-            <option value="uk">Українська</option>
-          </datalist>
+          <span data-i18n="ui_targetLanguageLabel">Translate to</span>
+          <select id="targetLanguageSelect"></select>
+          <input id="targetLanguageCustomInput" type="text" data-i18n-placeholder="ui_targetLanguageCustomPlaceholder" placeholder="e.g. en" hidden>
         </label>
       </div>
-      <small>認識言語はBCP 47ロケール（例: ja-JP）、翻訳先はChrome Translator APIの言語コード（例: en / fr / zh-Hant）を指定します。</small>
+      <p id="pairAvailability" class="pair-availability" data-state="unknown"></p>
+      <small data-i18n="ui_languageHint">Choose "Other (type manually)" to enter a language code that isn't in the list.</small>
+
       <div class="two-columns">
         <label>
-          OBSホスト
+          <span data-i18n="ui_obsHostLabel">OBS host</span>
           <select id="obsHostInput">
             <option value="127.0.0.1">127.0.0.1</option>
             <option value="localhost">localhost</option>
           </select>
         </label>
         <label>
-          OBSポート
+          <span data-i18n="ui_obsPortLabel">OBS port</span>
           <input id="obsPortInput" type="number" min="1" max="65535" value="4455">
         </label>
       </div>
       <label>
-        OBS WebSocketパスワード
-        <input id="obsPasswordInput" type="password" autocomplete="off" placeholder="Chrome再起動後は再入力">
+        <span data-i18n="ui_obsPasswordLabel">OBS WebSocket password</span>
+        <input id="obsPasswordInput" type="password" autocomplete="off" data-i18n-placeholder="ui_obsPasswordPlaceholder" placeholder="Re-enter after Chrome restarts">
       </label>
       <label class="checkbox-field">
         <input id="obsPasswordPersistInput" type="checkbox">
-        このデバイスにパスワードを保存する（Chrome再起動後も再入力不要にする）
+        <span data-i18n="ui_obsPasswordPersistLabel">Save password on this device (skip re-entry after Chrome restarts)</span>
       </label>
-      <small class="text-warn">有効にすると、パスワードを暗号化せずこのPCに保存します。このPCのChromeプロファイルにアクセスできる第三者は、OBSの全操作（配信の停止・シーン変更など）が可能になります。共有PCでは有効にしないでください。既定（無効）ではChromeを再起動すると消えます。</small>
+      <small class="text-warn" data-i18n="ui_obsPasswordWarning">Enabling this stores the password unencrypted on this PC. Anyone with access to this PC's Chrome profile could then fully control OBS (stop the stream, switch scenes, etc.). Don't enable this on a shared PC. By default (disabled) it's cleared when Chrome restarts.</small>
       <label>
-        OBS上のマイク入力名（任意）
-        <input id="obsMicrophoneInputName" type="text" placeholder="例: マイク / AUX">
-        <small>設定した場合、OBSでミュート中は字幕を送りません。</small>
+        <span data-i18n="ui_obsMicInputLabel">OBS microphone input name (optional)</span>
+        <input id="obsMicrophoneInputName" type="text" data-i18n-placeholder="ui_obsMicInputPlaceholder" placeholder="e.g. Mic / AUX">
+        <small data-i18n="ui_obsMicInputHint">When set, captions won't be sent while this input is muted in OBS.</small>
       </label>
       <div class="button-row">
-        <button id="connectObsButton" type="button" class="secondary">OBSへ接続</button>
-        <button id="testCaptionButton" type="button" class="secondary" disabled>テスト字幕</button>
+        <button id="connectObsButton" type="button" class="secondary" data-i18n="ui_connectObsButton">Connect to OBS</button>
+        <button id="testCaptionButton" type="button" class="secondary" disabled data-i18n="ui_testCaptionButton">Test caption</button>
       </div>
     </section>
 
     <section class="card">
-      <h2>字幕設定</h2>
+      <h2 data-i18n="ui_captionSettingsTitle">Caption settings</h2>
       <div class="two-columns">
         <label>
-          最大待機数
+          <span data-i18n="ui_maxPendingLabel">Max pending</span>
           <input id="maxPendingInput" type="number" min="1" max="10" value="2">
         </label>
         <label>
-          最大待機時間（ms）
+          <span data-i18n="ui_maxAgeLabel">Max wait time (ms)</span>
           <input id="maxAgeInput" type="number" min="500" max="30000" step="100" value="5000">
         </label>
       </div>
       <label>
-        1字幕の最大文字数（暫定）
+        <span data-i18n="ui_maxCharsLabel">Max characters per caption (provisional)</span>
         <input id="maxCaptionCharsInput" type="number" min="20" max="200" value="72">
       </label>
       <label>
-        分割字幕の送信間隔（ms、0で無効）
+        <span data-i18n="ui_segmentIntervalLabel">Segment send interval (ms, 0 to disable)</span>
         <input id="segmentIntervalInput" type="number" min="0" max="10000" step="100" value="1500">
-        <small>連続送信すると前の字幕が読み切れないうちに上書きされます（暫定値）。</small>
+        <small data-i18n="ui_segmentIntervalHint">Sending back to back overwrites the previous caption before it can be read (provisional value).</small>
       </label>
       <label>
-        発話途中の区切り文字数（0で無効）
+        <span data-i18n="ui_interimFlushLabel">Mid-utterance flush length (0 to disable)</span>
         <input id="interimFlushCharsInput" type="number" min="0" max="200" step="10" value="40">
-        <small>長い発話を認識確定前にこの文字数ごとに区切り、先に翻訳へ回します。表示は速くなりますが、確定前の文で区切るため区切り付近の訳が不自然になることがあります（暫定値）。</small>
+        <small data-i18n="ui_interimFlushHint">Splits a long utterance into chunks of this many characters before it's finalized, and sends each chunk to translation early. Faster to display, but since it splits mid-sentence, the translation near a split can occasionally look unnatural or duplicated (provisional value).</small>
       </label>
       <label>
-        固有名詞置換（JSON）
+        <span data-i18n="ui_replacementsLabel">Term replacements (JSON)</span>
         <textarea id="replacementsInput" rows="4" spellcheck="false" placeholder='{"Palantia":"Palantir"}'></textarea>
       </label>
-      <button id="saveSettingsButton" type="button" class="secondary">設定を保存</button>
+      <button id="saveSettingsButton" type="button" class="secondary" data-i18n="ui_saveSettingsButton">Save settings</button>
     </section>
 
     <section class="card preview-card">
-      <h2>認識プレビュー</h2>
-      <p class="preview-label">途中認識</p>
+      <h2 data-i18n="ui_previewTitle">Recognition preview</h2>
+      <p class="preview-label" data-i18n="ui_previewInterimLabel">In progress</p>
       <p id="interimPreview" class="preview muted">—</p>
-      <p class="preview-label">確定した入力</p>
+      <p class="preview-label" data-i18n="ui_previewFinalLabel">Finalized input</p>
       <p id="japanesePreview" class="preview">—</p>
-      <p class="preview-label">送出候補の翻訳</p>
+      <p class="preview-label" data-i18n="ui_previewTranslatedLabel">Translation to send</p>
       <p id="englishPreview" class="preview english">—</p>
     </section>
 
     <section class="primary-controls">
-      <button id="startButton" type="button" class="primary">CCを開始</button>
-      <button id="stopButton" type="button" class="danger" disabled>停止</button>
+      <button id="startButton" type="button" class="primary" data-i18n="ui_startButton">Start CC</button>
+      <button id="stopButton" type="button" class="danger" disabled data-i18n="ui_stopButton">Stop</button>
     </section>
 
     <section class="card">
       <div class="section-title-row">
-        <h2>イベント</h2>
-        <button id="clearLogButton" type="button" class="text-button">消去</button>
+        <h2 data-i18n="ui_eventsTitle">Events</h2>
+        <button id="clearLogButton" type="button" class="text-button" data-i18n="ui_clearLogButton">Clear</button>
       </div>
       <ol id="eventLog" class="event-log" aria-live="polite"></ol>
     </section>
 
-    <p class="privacy-note">
-      通常のChrome音声認識では、音声が認識サービスへ送信される場合があります。翻訳はChrome内蔵Translator APIを使用し、字幕本文は既定で保存しません。
+    <p class="privacy-note" data-i18n="ui_privacyNote">
+      Chrome's regular speech recognition may send audio to a recognition service. Translation uses Chrome's built-in Translator API, and caption text isn't stored by default.
     </p>
   </main>
 

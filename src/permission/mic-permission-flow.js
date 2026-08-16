@@ -96,14 +96,20 @@ export function isMicPermissionResultMessage(data) {
   return Boolean(data) && typeof data === "object" && data.type === "mic-permission-result";
 }
 
-const HELPER_ERROR_LABELS = {
-  NotAllowedError: "マイクがブロックされています。chrome://settings/content/microphone でこの拡張機能を「許可」に変更してから、下のボタンでもう一度お試しください。",
-  NotFoundError: "利用できるマイクが見つかりませんでした。マイクを接続してから、下のボタンでもう一度お試しください。",
-  MediaDevicesUnavailable: "このブラウザではマイク機能を利用できません。",
+const HELPER_ERROR_KEYS = {
+  NotAllowedError: "micHelper_errNotAllowed",
+  NotFoundError: "micHelper_errNotFound",
+  MediaDevicesUnavailable: "micHelper_errMediaUnavailable",
 };
 
-export function helperErrorLabel(errorName) {
-  return HELPER_ERROR_LABELS[errorName] ?? `マイクを許可できませんでした（${errorName}）。下のボタンでもう一度お試しください。`;
+// Returns an i18n message key (+ substitutions) rather than a formatted
+// string: this module stays chrome-free (see the file header) so it can't
+// call chrome.i18n.getMessage() itself. The DOM glue in mic-permission.js
+// does the actual t(key, substitutions) call.
+export function helperErrorMessage(errorName) {
+  const key = HELPER_ERROR_KEYS[errorName];
+  if (key) return { key, substitutions: [] };
+  return { key: "micHelper_errGeneric", substitutions: [errorName] };
 }
 
 // Waits for the helper tab to either report a result or be closed by the
