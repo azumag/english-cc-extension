@@ -34,6 +34,7 @@
           <button id="refreshMicrophonesButton" type="button" class="secondary">更新・許可</button>
         </span>
       </label>
+      <small>マイク権限が未許可の場合、「更新・許可」で許可用のタブが開きます。表示されるダイアログで「許可」を選んでください。</small>
       <div class="two-columns">
         <label>
           認識言語
@@ -91,6 +92,11 @@
         OBS WebSocketパスワード
         <input id="obsPasswordInput" type="password" autocomplete="off" placeholder="Chrome再起動後は再入力">
       </label>
+      <label class="checkbox-field">
+        <input id="obsPasswordPersistInput" type="checkbox">
+        このデバイスにパスワードを保存する（Chrome再起動後も再入力不要にする）
+      </label>
+      <small class="text-warn">有効にすると、パスワードを暗号化せずこのPCに保存します。このPCのChromeプロファイルにアクセスできる第三者は、OBSの全操作（配信の停止・シーン変更など）が可能になります。共有PCでは有効にしないでください。既定（無効）ではChromeを再起動すると消えます。</small>
       <label>
         OBS上のマイク入力名（任意）
         <input id="obsMicrophoneInputName" type="text" placeholder="例: マイク / AUX">
@@ -117,6 +123,16 @@
       <label>
         1字幕の最大文字数（暫定）
         <input id="maxCaptionCharsInput" type="number" min="20" max="200" value="72">
+      </label>
+      <label>
+        分割字幕の送信間隔（ms、0で無効）
+        <input id="segmentIntervalInput" type="number" min="0" max="10000" step="100" value="1500">
+        <small>連続送信すると前の字幕が読み切れないうちに上書きされます（暫定値）。</small>
+      </label>
+      <label>
+        発話途中の区切り文字数（0で無効）
+        <input id="interimFlushCharsInput" type="number" min="0" max="200" step="10" value="40">
+        <small>長い発話を認識確定前にこの文字数ごとに区切り、先に翻訳へ回します。表示は速くなりますが、確定前の文で区切るため区切り付近の訳が不自然になることがあります（暫定値）。</small>
       </label>
       <label>
         固有名詞置換（JSON）

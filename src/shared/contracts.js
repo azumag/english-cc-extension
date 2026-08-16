@@ -8,8 +8,20 @@ export const DEFAULT_SETTINGS = Object.freeze({
   maxPending: 2,
   maxAgeMs: 5000,
   maxCaptionChars: 72,
+  segmentIntervalMs: 1500,
+  // Flushes a long in-progress (interim, not-yet-final) utterance to
+  // translation once it crosses this many characters, instead of waiting
+  // for Chrome's own pause detection to finalize it. 0 disables early
+  // flushing (translation only starts once an utterance is final, the
+  // pre-9.10 behavior). See src/speech/interim-committer.js.
+  interimFlushChars: 40,
   replacements: {},
   logCaptions: false,
+  // Opt-in only: when true, the user has explicitly acknowledged the risk
+  // warning and asked to keep the OBS password in chrome.storage.local so
+  // it survives a Chrome restart. Defaults to false (session-only), see
+  // src/settings/settings-store.js.
+  obsPasswordPersistLocal: false,
 });
 
 export const LOCAL_OBS_HOSTS = Object.freeze(["127.0.0.1", "localhost"]);
@@ -59,7 +71,12 @@ export function normalizeSettings(value = {}) {
     maxPending: normalizePositiveInteger(value.maxPending, DEFAULT_SETTINGS.maxPending, { min: 1, max: 10 }),
     maxAgeMs: normalizePositiveInteger(value.maxAgeMs, DEFAULT_SETTINGS.maxAgeMs, { min: 500, max: 30000 }),
     maxCaptionChars: normalizePositiveInteger(value.maxCaptionChars, DEFAULT_SETTINGS.maxCaptionChars, { min: 20, max: 200 }),
+    // 0 disables pacing (segments send back to back, the pre-CaptionPacer behavior).
+    segmentIntervalMs: normalizePositiveInteger(value.segmentIntervalMs, DEFAULT_SETTINGS.segmentIntervalMs, { min: 0, max: 10000 }),
+    // 0 disables early flushing of long in-progress (interim) utterances.
+    interimFlushChars: normalizePositiveInteger(value.interimFlushChars, DEFAULT_SETTINGS.interimFlushChars, { min: 0, max: 200 }),
     replacements: normalizeReplacements(value.replacements),
     logCaptions: Boolean(value.logCaptions),
+    obsPasswordPersistLocal: Boolean(value.obsPasswordPersistLocal),
   };
 }

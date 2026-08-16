@@ -1,6 +1,6 @@
 # English CC Extension 引き継ぎ文書
 
-最終更新: 2026-08-14 (JST)
+最終更新: 2026-08-16 (JST)
 
 ## 0. 最初に確認すること
 
@@ -10,7 +10,7 @@
 
 | 項目 | 現状 |
 |---|---|
-| リポジトリ | `azumag/english-cc-extension` |
+| リポジトリ | `azumag/tw-cc-sender`（旧名: `english-cc-extension`） |
 | 基準ブランチ | `main` |
 | 親Issue | #1 |
 | 初期実装コミット | `58c1ec5bffe4fbc336000e48dbd6cb628238bb43` |
@@ -71,7 +71,7 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
   -> Translatorを初期化
   -> マイクを取得
   -> SpeechRecognitionを開始
-  -> final認識結果だけ字幕キューへ投入
+  -> final認識結果と、interimFlushChars超の途中確定チャンクを字幕キューへ投入
   -> 英訳
   -> CaptionPolicyで検査・分割
   -> OBSの配信状態・マイクミュートを確認
@@ -91,7 +91,7 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 通常字幕は、次をすべて満たす場合だけ送信します。
 
 - サイドパネル側のCC処理がON
-- 音声認識結果が`final`
+- 音声認識結果が`final`、または`interimFlushChars`で明示的に途中確定したチャンク
 - 翻訳結果が空でない
 - 翻訳結果に日本語文字が残っていない
 - 直前に送った字幕と同一でない
@@ -112,9 +112,13 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `src/sidepanel/sidepanel.css` | 操作画面のスタイル |
 | `src/sidepanel/sidepanel.js` | UI、各サービスの生成、開始・停止、状態表示を統合するComposition Root |
 | `src/speech/speech-recognizer.js` | マイク取得、入力一覧、SpeechRecognition、終了後の再開 |
+| `src/speech/interim-committer.js` | 長い発話を確定前に区切って翻訳へ先行投入する状態機械（純粋関数） |
+| `src/permission/mic-permission-flow.js` | Side Panelのマイク許可プロンプト問題を回避する判断ロジック（純粋関数） |
+| `src/permission/mic-permission.html` / `mic-permission.js` | マイク許可を通常タブとして要求する独立ページ |
 | `src/translation/chrome-translator.js` | Translator APIの可用性確認、初期化、ダウンロード進捗、翻訳 |
 | `src/captions/caption-queue.js` | 1件ずつ処理する有界FIFO、期限切れ・overflow処理 |
 | `src/captions/caption-policy.js` | 正規化、日本語混入拒否、重複排除、置換、長文分割 |
+| `src/captions/caption-pacer.js` | 分割字幕・連続発話間の送信間隔（ペーシング） |
 | `src/obs/obs-websocket-client.js` | obs-websocket 5.x接続、認証、request/response管理 |
 | `src/obs/obs-caption-output.js` | OBSバージョン確認、配信・ミュート判定、字幕送信 |
 | `src/settings/settings-store.js` | 通常設定とOBSパスワードの保存境界 |
@@ -141,25 +145,29 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `maxPending` | `2` | 1〜10。処理中の1件は別枠 |
 | `maxAgeMs` | `5000` | 500〜30000ms |
 | `maxCaptionChars` | `72` | 暫定値。実機確認後に確定する |
+| `segmentIntervalMs` | `1500` | 0〜10000ms。分割字幕・連続発話間の送信間隔。`0`で無効化。暫定値 |
+| `interimFlushChars` | `40` | 0〜200。長い発話を確定前に区切って翻訳へ回す文字数。`0`で無効化。暫定値 |
 | `replacements` | `{}` | 英訳後に適用する完全一致部分置換 |
 | `logCaptions` | `false` | 将来用。現在のUIでは本文永続ログを行わない |
+| `obsPasswordPersistLocal` | `false` | opt-in。trueかつユーザーが警告文に同意した場合のみOBSパスワードを`chrome.storage.local`にも保存する |
 
 ### 保存場所
 
 - 通常設定: `chrome.storage.local`
-- OBS WebSocketパスワード: `chrome.storage.session`
-- `chrome.storage.session`が使えないテスト環境: メモリのみ
+- OBS WebSocketパスワード: 既定は`chrome.storage.session`のみ。`obsPasswordPersistLocal=true`のopt-in時のみ`chrome.storage.local`にも平文でミラー保存する（`src/settings/settings-store.js`）
+- `chrome`自体が使えないテスト環境（`globalThis.chrome`未定義）: メモリのみ。`obsPasswordPersistLocal`は無視される
+- `chrome.storage.local`はあるが`chrome.storage.session`だけ使えない環境（実Chrome 138以降では起こらない想定）: 生存中の値はメモリにフォールバックするが、`persistLocal`のlocalミラー書き込み自体は独立して動くため、その場合は書き込まれたlocalの値を`loadObsPassword()`が読みに行かない非対称が残る
 - 日本語認識結果・英訳結果: 永続保存しない
 - イベントログ: サイドパネルのメモリ内のみ
 
-Chromeを再起動するとOBSパスワードは消える設計です。
+既定（`obsPasswordPersistLocal=false`）ではChromeを再起動するとOBSパスワードは消えます。opt-inした場合のみ再起動後も保持されます。「このデバイスに保存する」チェックボックスはON/OFFどちらも`change`イベントで即座に`persistSettings()`（設定全体の保存＋`saveObsPassword`）を呼びます。「設定を保存」ボタンを別途押すのを待ちません。チェックを外した瞬間に`chrome.storage.local`側のコピーが消去されるのはこの経路によるもので、設定オブジェクト内の`obsPasswordPersistLocal`フラグと実際の`chrome.storage.local`の保存状態が食い違ったまま残ることを防ぎます。localのみを消去する`removeLocalObsPassword()`（`src/settings/settings-store.js`）はテスト・将来のUIから利用できるよう公開していますが、現在のサイドパネルUIからは直接呼んでいません。
 
 ## 6. セキュリティ上の不変条件
 
 変更時も次を維持してください。
 
 1. OBS接続先を`127.0.0.1`または`localhost`以外に広げない。
-2. OBSパスワードを`chrome.storage.local`へ保存しない。
+2. OBSパスワードを、ユーザーが警告文に明示的に同意してopt-inした場合（`obsPasswordPersistLocal=true`）を除き`chrome.storage.local`へ保存しない。`chrome.storage.sync`へはいかなる場合も保存しない。既定値は常にOFF。opt-inをOFFへ戻したら保存済みパスワードを即時に消去する。
 3. 認識原文・翻訳文を既定で永続保存しない。
 4. 翻訳失敗時に日本語原文をTwitchへ送らない。
 5. TwitchのCookie、OAuth、タブ、閲覧履歴権限を要求しない。
@@ -203,7 +211,7 @@ node scripts/check-syntax.mjs
 
 ### Chrome
 
-- Side Panelで`getUserMedia()`の許可を取得できるか
+- Side Panelで`getUserMedia()`の許可を取得できるか（対応済み・9.9参照。許可用タブ経由のフローをPhase 0で再検証すること）
 - マイク一覧とラベルが取得できるか
 - `SpeechRecognition`が拡張ページ内で動くか
 - `SpeechRecognition.start(MediaStreamTrack)`で選択マイクを使えるか
@@ -259,11 +267,17 @@ OBS WebSocketクライアントには切断検出がありますが、自動再�
 
 本番化する場合は、古い字幕キューを破棄したうえで、上限付き指数バックオフを追加してください。
 
-### 9.4 分割字幕の送信間隔
+### 9.4 分割字幕の送信間隔（対応済み・実機値は未確定）
 
-長文を複数セグメントへ分割した場合、現在は各セグメントを連続して送ります。Twitch側で直前字幕が読めない速度で上書きされる可能性があります。
+`src/captions/caption-pacer.js`の`CaptionPacer`が`ObsCaptionOutput`を薄くラップし、前回**送信成功**時刻からの経過が`segmentIntervalMs`未満なら待機してから送信するようになりました。`sidepanel.js`の`createCaptionPipeline`でセグメント送信ループに組み込み済みです。間隔はセグメント間だけでなく、連続する確定発話間にも自然に効きます（`lastSentAt`をパイプライン生存期間で保持するため）。
 
-実機で安全な間隔を測定し、必要なら`CaptionQueue`または`ObsCaptionOutput`の上位に送信ペーサーを追加してください。固定sleepをテストの同期手段には使わず、送信時間を注入可能にするとテストしやすくなります。
+設定は`segmentIntervalMs`（`src/shared/contracts.js`、既定`1500`ms、`0`で無効化、範囲`0〜10000`）。`clock`/`wait`を注入できるため、`tests/caption-pacer.test.js`は実sleepを使わずに検証しています。
+
+`CaptionPacer`は`shouldAbort`コールバックも受け付けます。待機（wait）は最大`segmentIntervalMs`かかるため、待機中にCC停止・Side Panel終了などで`state.running`がfalseになるケースを、待機直後・実送信直前に再チェックして`{ sent: false, reason: "aborted" }`で打ち切ります。これがないと、停止操作から最大`segmentIntervalMs`分遅れて字幕が1件だけ配信に載ってしまいます。
+
+残タスクは実機のみです。Twitch上で複数セグメントが確実に読める安全な間隔は未計測のため、`segmentIntervalMs`の既定値`1500ms`はPhase 0実測で確定してください。待機中に`maxAgeMs`超過で後続キュー項目が`expired`落ちしやすくなる点は意図した挙動です（14節「最新字幕を優先し、遅れた字幕を後からまとめて送らない」）。
+
+同じ理由で、1件の長い発話が`maxCaptionChars`超で複数セグメントに分割された場合、各セグメントの期限判定は元発話の`createdAt`を基準にする（`caption-policy.js`の`prepare()`）ため、`segmentIntervalMs`による待機が積み重なると**同一発話の後半セグメントだけが`expired`で送られない**ことがあります（目安: ソース文が概ね120文字を超えるとチャンク数が4件前後になり、既定値`1500ms`の累積待機が`maxAgeMs`既定`5000ms`に近づく）。これも14節の方針どおりの意図した挙動ですが、体感としては「後続キュー項目の破棄」とは別の現象（同一字幕の尻切れ）なので、実機確認時は区別して記録してください。
 
 ### 9.5 CEA-608文字集合
 
@@ -279,17 +293,51 @@ OBS WebSocketクライアントには切断検出がありますが、自動再�
 
 OBS再接続処理を変更する場合、古い`ObsCaptionOutput`やタイマーを残さないことを確認してください。接続失敗後に以前のclientを参照し続けないよう、状態遷移テストを追加するのが望ましいです。
 
+`connectObs()`は再接続のたびに`state.pacer?.setOutput(state.output)`を呼び、CC実行中に手動で「OBSへ接続」を押した場合でも`CaptionPacer`が古い（切断済みの）`ObsCaptionOutput`を握り続けないようにしています。`ObsCaptionOutput.initialize()`が失敗する場合に備えて、`setOutput`は`initialize()`より前（`state.output`の代入直後）に呼ぶ配置にしてあります。この配線を変更する場合は`tests/caption-pacer.test.js`の`setOutput()`関連テストを参照してください。
+
 ### 9.8 Side Panel終了イベント
 
 現在は`beforeunload`でマイク、Translator、OBSを解放します。ChromeがSide Panelを閉じたときに必ず期待どおり呼ばれるか実機確認が必要です。
+
+### 9.9 Side Panelのマイク許可プロンプト（対応済み）
+
+実機確認で判明: Chrome Side Panelは`getUserMedia()`のネイティブ許可プロンプトを正しく表示できません。拡張のマイク権限が「確認（prompt）」状態のとき、Side Panelから直接`getUserMedia()`を呼ぶとダイアログが一切表示されず即座に`NotAllowedError`で拒否されます（`chrome://settings/content/microphone`で該当origin を手動で「許可」に切り替えると、同じコードがそのまま成功することで確認済み）。Side Panelという実行コンテキスト固有の制限であり、拡張コードの呼び出し方自体の誤りではありません。
+
+対応: `src/permission/mic-permission.html`を`window.open()`で通常のトップレベルタブとして開き（`chrome.tabs.create`は使わない、`tabs`権限も`web_accessible_resources`追加も不要）、そのタブ内で`getUserMedia`を要求します。通常タブはプロンプトを正しく描画できるため許可が成立し、許可は`chrome-extension://<id>` origin単位で有効になるので、以降Side Panelから呼ぶ`getUserMedia()`も無許可プロンプトなしで成功します。判断ロジックは`src/permission/mic-permission-flow.js`に純粋関数として切り出し、`tests/mic-permission-flow.test.js`で検証しています。DOM/`chrome.*`/`window.*`への依存は`src/sidepanel/sidepanel.js`の`ensureMicrophonePermission()`と`src/permission/mic-permission.js`側の薄いグルーコードに閉じ込めています。
+
+注意点:
+
+- 既にマイク権限が`granted`の場合はタブを一切開かず、従来どおりSide Panel内で直接`getUserMedia`する高速経路を維持しています（`decideMicPermissionAction("granted") === "request-direct"`）。毎回タブが開くわけではありません。
+- 許可用タブは成功時に`window.close()`で自己クローズしますが、Chromeのバージョン・ポリシーによっては保証されないため、タブ側に常時「閉じない場合は手動で閉じてください」の案内を表示しています。
+- マイク権限が既に`denied`（ブロック済み）の場合、タブを開いても同様に自動拒否されるだけなので、タブは開かずchrome://settings/content/microphoneでの設定変更手順をログに表示するだけに留めます（fail closed）。
+- 完了検知は`BroadcastChannel`（許可用タブからの結果メッセージ）と`window.open()`の戻り値（`WindowProxy`）の`.closed`ポーリングを併用しています。メッセージ単独だとダイアログに答えずタブを閉じたケースを検知できず、`.closed`ポーリング単独だと「許可成功後に自己クローズ」と「未回答のまま閉じた」を区別できないためです。
+- 「更新・許可」を許可待ちタブが開いた状態でもう一度押しても、2つ目のタブは開かず既存タブに`focus()`するだけです（`state.micPermissionWaiting`ガード）。このフラグは`window.open()`直後ではなく`ensureMicrophonePermission()`の最初のawaitより前に立てているため、`permissions.query()`や直接`getUserMedia`を試している最中の連打でもタブが二重に開きません。
+- ダイアログを選ばずに閉じた「未回答での却下」も`NotAllowedError`になりますが、origin権限は`prompt`のまま（`denied`にはならない）です。許可用タブ経由のフローはこれを`denied`と誤表示しないよう、`awaitHelperCompletion`が`"denied"`を返した際に`queryMicrophonePermission`を再チェックし、実際に`denied`のときだけ「ブロック中」＋設定変更手順を出します。それ以外（未回答での却下など）は「未許可」＋再試行案内に留めます。
+- 許可用タブは`window.opener`を一切参照しません。Side Panelが先に閉じてもタブ単体で許可を完了できます。
+
+### 9.10 長い発話の途中確定（interim flush、対応済み・実機挙動は未確認）
+
+ユーザー報告: 発話中、一回区切らないと翻訳に入らず、長い文では翻訳までにかなりのタイムラグがある。
+
+原因: Web Speech APIは、Chrome側の音声区間検出（VAD）が区切りを判断するまで`onFinal`を呼びません。これは拡張側から制御・強制できません。句読点なしで長く話し続けると、確定（final）自体が遅れ、翻訳開始まで大きな遅延が生じます。9.4の`segmentIntervalMs`による分割は「確定後」の長文を区切る機能であり、確定前のこの遅延には効きません。
+
+対応: `src/speech/interim-committer.js`の`InterimCommitter`が、まだ成長中の暫定（interim）テキストを`interimFlushChars`文字を超えるたびに先頭から区切り、`sidepanel.js`経由で通常の`onFinal`と同じ`state.queue.submit()`（翻訳→`CaptionPolicy.prepare`→`CaptionPacer.sendCaption`）へ先行投入します。区切り位置は`src/captions/caption-queue.js`の`findPreferredBreak`（句点優先、次点で読点等のソフト境界、なければハードカット）をそのまま再利用し、確定後分割と体感を揃えています。`onFinal`が来た時点では、`InterimCommitter.finalize()`が「既に投入済みの分」を差し引いた残り部分だけを返すため、二重送信を避けます。
+
+注意点（精度とのトレードオフ、実機確認が必要）:
+
+- これは低遅延と引き換えに**確定前の文で区切る精度トレードオフ**です。Chromeの音声認識は暫定テキストを後から訂正することがあり、訂正が起きた場合、既に投入・送信済みのチャンクは取り消せません。訂正の深さを吸収するため末尾`safetyMarginChars`文字（既定10、コンストラクタオプションのみでユーザー設定はなし）を常にコミット対象から除外していますが、深い訂正が起きた稀なケースでは、確定後に送られる残り部分と既送信チャンクの訳がわずかに重複・不自然になり得ます。
+- コミット済みテキストが次の認識結果（result）へまたがるケース（境界をChromeが想定と違う位置で区切った場合）は、`finalize()`が吸収できなかった末尾を「未検証のキャリーオーバー」として次の`update()`へ引き継ぎます。次の暫定テキストがそのキャリーオーバーより**短いが矛盾しない**間は破棄せず待機し（Chromeは新しい結果の暫定テキストを段階的に伸ばして届けるため）、実際に食い違った場合のみ破棄します。ライブで一度確定していたテキストと矛盾した場合（`frozen`状態）は、`finalize()`後にその食い違ったテキストをキャリーオーバーとして復活させません（否定された内容を次の発話の仮説として引きずらないため）。fable self-reviewでこの2点の不備（現実的な段階配信下ではキャリーオーバー確認がほぼ機能しない再送重複バグ、および否定済みテキストの残留）が見つかり、実装で修正済みです。
+- チャンクごとに独立したキュー項目になるため、翻訳が追いつかない状況では`maxPending`超過で中間チャンクが落ちる可能性があります（14節の「最新字幕を優先し、遅れた字幕を後からまとめて送らない」方針どおりの挙動）。
+- `interimFlushChars`既定値`40`（`sourceChunkChars`と同一）と`safetyMarginChars`既定値`10`はいずれも暫定値です。実機のja-JP暫定テキストの訂正パターン・句読点の出現頻度を確認してから確定してください。
+- 音声認識の`restarting`/`error`/`fatal-error`/`stopped`状態遷移では`InterimCommitter.reset()`を呼び、未確定の末尾を破棄します（Chromeは再開をまたいで確定しないため）。既に投入済みのチャンクはそのまま残ります。これは今までの「再開時に発話全体が失われる」動作からの改善です。
 
 ## 10. 次の担当者が行う作業順
 
 ### Step 1: 基準状態を確認
 
 ```bash
-git clone https://github.com/azumag/english-cc-extension.git
-cd english-cc-extension
+git clone https://github.com/azumag/tw-cc-sender.git
+cd tw-cc-sender
 npm install
 npm test
 ```
@@ -355,7 +403,7 @@ P0が成立しない場合は、機能を膨らませずIssue #1にある代替�
 
 - 音声認識fatal errorの分類
 - OBS自動再接続
-- 字幕送信ペーシング
+- 字幕送信ペーシング（実装済み、実機での間隔確定が残タスク。9.4参照）
 - CEA-608安全文字の正規化
 - 長時間テスト
 - 状態遷移テスト
@@ -437,10 +485,14 @@ npm test
 
 - 字幕ポリシー変更: `tests/caption-policy.test.js`
 - キュー変更: `tests/caption-queue.test.js`
+- 送信ペーシング変更: `tests/caption-pacer.test.js`
 - OBS認証・プロトコル変更: `tests/obs-auth.test.js`など
 - OBS送出条件変更: `tests/obs-caption-output.test.js`
 - Translator wrapper変更: `tests/chrome-translator.test.js`
 - Manifest権限変更: `tests/manifest.test.js`
+- 設定・OBSパスワード保存境界の変更: `tests/settings-store.test.js`
+- マイク許可フロー変更: `tests/mic-permission-flow.test.js`
+- 途中確定（interim flush）変更: `tests/interim-committer.test.js`
 
 Chrome APIの実挙動に関わる修正は、unit testだけで完了扱いにせず、`docs/manual-test.md`の関連項目も再実行してください。
 
@@ -465,7 +517,7 @@ Chrome APIの実挙動に関わる修正は、unit testだけで完了扱いに�
 - [ ] 日本語から英語へ翻訳できる
 - [ ] OBS WebSocketへ認証付きで接続できる
 - [ ] OBS配信中にTwitch公式CCへ英語字幕を送れる
-- [ ] 日本語原文や途中認識結果を送らない
+- [ ] 日本語原文を送らない。認識途中のテキストは、`interimFlushChars`で明示的に途中確定した翻訳済みチャンク以外は送らない
 - [ ] OBS未配信時に送らない
 - [ ] 対象マイクのミュート中に送らない
 - [ ] 停止・Side Panel終了時にマイクを解放する
@@ -478,8 +530,8 @@ Chrome APIの実挙動に関わる修正は、unit testだけで完了扱いに�
 
 ## 16. 関連資料
 
-- 親Issue: `https://github.com/azumag/english-cc-extension/issues/1`
-- 初期実装コミット: `https://github.com/azumag/english-cc-extension/commit/58c1ec5bffe4fbc336000e48dbd6cb628238bb43`
+- 親Issue: `https://github.com/azumag/tw-cc-sender/issues/1`
+- 初期実装コミット: `https://github.com/azumag/tw-cc-sender/commit/58c1ec5bffe4fbc336000e48dbd6cb628238bb43`
 - dociai統合版Issue: `https://github.com/azumag/dociai/issues/282`
 - Chrome組み込みAI: `https://developer.chrome.com/docs/ai/built-in-apis`
 - Chrome Translator API: `https://developer.chrome.com/docs/ai/translator-api`

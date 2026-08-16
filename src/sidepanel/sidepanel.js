@@ -1,7 +1,16 @@
+import { CaptionPacer } from "../captions/caption-pacer.js";
 import { CaptionPolicy } from "../captions/caption-policy.js";
 import { CaptionQueue } from "../captions/caption-queue.js";
 import { ObsCaptionOutput } from "../obs/obs-caption-output.js";
 import { ObsWebSocketClient, buildObsWebSocketUrl } from "../obs/obs-websocket-client.js";
+import {
+  MIC_PERMISSION_CHANNEL,
+  awaitHelperCompletion,
+  decideMicPermissionAction,
+  queryMicrophonePermission,
+  shouldOpenHelperAfterFailure,
+} from "../permission/mic-permission-flow.js";
+import { InterimCommitter } from "../speech/interim-committer.js";
 import { SpeechRecognizer } from "../speech/speech-recognizer.js";
 import { ChromeTranslator } from "../translation/chrome-translator.js";
 import { targetAllowsCjkText, toTranslatorLanguageTag } from "../translation/language-tags.js";
@@ -21,8 +30,8 @@ const FATAL_ERROR_LABELS = {
 const elements = Object.fromEntries([
   "overallStatus", "chromeStatus", "microphoneStatus", "recognitionStatus", "translationStatus", "obsStatus", "streamStatus",
   "microphoneSelect", "refreshMicrophonesButton", "recognitionLanguageInput", "targetLanguageInput",
-  "obsHostInput", "obsPortInput", "obsPasswordInput", "obsMicrophoneInputName",
-  "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "replacementsInput",
+  "obsHostInput", "obsPortInput", "obsPasswordInput", "obsPasswordPersistInput", "obsMicrophoneInputName",
+  "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "segmentIntervalInput", "interimFlushCharsInput", "replacementsInput",
   "saveSettingsButton", "interimPreview", "japanesePreview", "englishPreview", "startButton", "stopButton", "clearLogButton", "eventLog",
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -30,12 +39,16 @@ const state = {
   settings: null,
   translator: null,
   recognizer: null,
+  interimCommitter: null,
   obsClient: null,
   output: null,
+  pacer: null,
   policy: null,
   queue: null,
   running: false,
   statusTimer: null,
+  micHelperWindow: null,
+  micPermissionWaiting: false,
 };
 
 const logger = new RingLogger({
@@ -77,10 +90,13 @@ function readFormSettings() {
     microphoneDeviceId: elements.microphoneSelect.value,
     obsHost: elements.obsHostInput.value,
     obsPort: Number(elements.obsPortInput.value),
+    obsPasswordPersistLocal: elements.obsPasswordPersistInput.checked,
     obsMicrophoneInputName: elements.obsMicrophoneInputName.value,
     maxPending: Number(elements.maxPendingInput.value),
     maxAgeMs: Number(elements.maxAgeInput.value),
     maxCaptionChars: Number(elements.maxCaptionCharsInput.value),
+    segmentIntervalMs: Number(elements.segmentIntervalInput.value),
+    interimFlushChars: Number(elements.interimFlushCharsInput.value),
     replacements: parseReplacements(),
     logCaptions: false,
   });
@@ -91,10 +107,13 @@ function populateSettings(settings) {
   elements.targetLanguageInput.value = settings.targetLanguage;
   elements.obsHostInput.value = settings.obsHost;
   elements.obsPortInput.value = settings.obsPort;
+  elements.obsPasswordPersistInput.checked = settings.obsPasswordPersistLocal;
   elements.obsMicrophoneInputName.value = settings.obsMicrophoneInputName;
   elements.maxPendingInput.value = settings.maxPending;
   elements.maxAgeInput.value = settings.maxAgeMs;
   elements.maxCaptionCharsInput.value = settings.maxCaptionChars;
+  elements.segmentIntervalInput.value = settings.segmentIntervalMs;
+  elements.interimFlushCharsInput.value = settings.interimFlushChars;
   elements.replacementsInput.value = Object.keys(settings.replacements).length
     ? JSON.stringify(settings.replacements, null, 2)
     : "";
@@ -103,7 +122,7 @@ function populateSettings(settings) {
 async function persistSettings() {
   const settings = readFormSettings();
   state.settings = await saveSettings(settings);
-  await saveObsPassword(elements.obsPasswordInput.value);
+  await saveObsPassword(elements.obsPasswordInput.value, { persistLocal: state.settings.obsPasswordPersistLocal });
   logger.info("設定を保存しました");
   return state.settings;
 }
@@ -131,14 +150,29 @@ function createTranslator(settings) {
 }
 
 function createRecognizer(settings) {
+  state.interimCommitter = new InterimCommitter({ flushChars: settings.interimFlushChars });
   state.recognizer = new SpeechRecognizer({
     lang: settings.recognitionLanguage,
     onInterim: (text) => {
       elements.interimPreview.textContent = text || "—";
+      if (!state.running) return;
+      // Flushes a long in-progress utterance to translation before Chrome
+      // finalizes it, so translation doesn't wait for a whole run-on
+      // sentence (see docs/HANDOFF.md 9.10). No-op while interimFlushChars
+      // is 0 or the utterance hasn't crossed the threshold yet.
+      for (const chunk of state.interimCommitter.update(text)) {
+        state.queue?.submit({ text: chunk, createdAt: Date.now() });
+        logger.info(`長い発話を途中で区切って翻訳へ回しました（${chunk.length}文字）`);
+      }
     },
     onFinal: (text) => {
       elements.japanesePreview.textContent = text;
-      if (state.running) state.queue?.submit({ text, createdAt: Date.now() });
+      if (!state.running) return;
+      // Only the part beyond whatever interim flushing already committed —
+      // see InterimCommitter.finalize().
+      for (const chunk of state.interimCommitter.finalize(text)) {
+        state.queue?.submit({ text: chunk, createdAt: Date.now() });
+      }
     },
     onState: (status) => {
       const labels = {
@@ -151,6 +185,12 @@ function createRecognizer(settings) {
       };
       setText("recognitionStatus", labels[status.state] ?? status.state);
       if (status.state === "recognizing") setText("microphoneStatus", "許可済み");
+      // Chrome never finalizes an utterance across a restart/stop, so any
+      // uncommitted interim tail is unrecoverable — drop it rather than let
+      // it bleed into whatever starts next. Chunks already flushed stand.
+      if (["stopped", "restarting", "error", "fatal-error"].includes(status.state)) {
+        state.interimCommitter?.reset();
+      }
       if (status.state === "fatal-error") {
         state.running = false;
         elements.startButton.disabled = false;
@@ -169,6 +209,17 @@ function createCaptionPipeline(settings) {
     maxCaptionChars: settings.maxCaptionChars,
     replacements: settings.replacements,
     allowCjkText: targetAllowsCjkText(settings.targetLanguage),
+  });
+
+  // Paces segment sends so a long utterance split into multiple captions
+  // doesn't overwrite itself on Twitch before a viewer can read it
+  // (see docs/HANDOFF.md 9.4). Persists across items on purpose: the
+  // interval also applies between the last segment of one utterance and
+  // the first segment of the next.
+  state.pacer = new CaptionPacer({
+    output: state.output,
+    intervalMs: settings.segmentIntervalMs,
+    shouldAbort: () => !state.running,
   });
 
   state.queue?.dispose();
@@ -192,9 +243,12 @@ function createCaptionPipeline(settings) {
       let sentCount = 0;
       for (const segment of prepared.segments) {
         if (!state.running) return;
-        const result = await state.output.sendCaption(segment);
+        const result = await state.pacer.sendCaption(segment);
         if (!result.sent) {
-          logger.warn(`字幕を送信できませんでした: ${result.reason}`);
+          // "aborted" means the user stopped CC (or a fatal error stopped
+          // it) while this segment was waiting out the pacing interval —
+          // expected, not worth a warning.
+          if (result.reason !== "aborted") logger.warn(`字幕を送信できませんでした: ${result.reason}`);
           return;
         }
         sentCount += 1;
@@ -235,6 +289,13 @@ async function connectObs() {
     client: state.obsClient,
     microphoneInputName: settings.obsMicrophoneInputName,
   });
+  // If captions are already running, rebind the pacer created in
+  // createCaptionPipeline() to the fresh output right away — even if
+  // initialize() below throws, the old output's client is already
+  // disconnected (see the disconnect() call above), so the pacer should
+  // not keep pointing at it either (see docs/HANDOFF.md 9.7 and
+  // src/captions/caption-pacer.js).
+  state.pacer?.setOutput(state.output);
   await state.output.initialize();
   elements.testCaptionButton.disabled = false;
   logger.info(`OBSへ接続しました: ${url}`);
@@ -255,11 +316,110 @@ async function refreshObsStatus() {
   }
 }
 
+// Thin DOM glue around BroadcastChannel, matching the injection contract
+// awaitHelperCompletion() expects (see src/permission/mic-permission-flow.js).
+function subscribeMicPermissionResult(handler) {
+  const channel = new BroadcastChannel(MIC_PERMISSION_CHANNEL);
+  channel.onmessage = (event) => handler(event.data);
+  return () => channel.close();
+}
+
+// Works around a Chrome limitation: the Side Panel cannot reliably render
+// the native getUserMedia permission prompt, so when the extension's
+// microphone permission is still unset ("prompt"), calling getUserMedia
+// directly here fails immediately with NotAllowedError and no dialog ever
+// appears. See docs/HANDOFF.md 9.9 for the full writeup.
+async function ensureMicrophonePermission(recognizer) {
+  if (state.micPermissionWaiting) {
+    state.micHelperWindow?.focus();
+    logger.info("マイクの許可処理を実行中です。しばらくお待ちください");
+    return false;
+  }
+  // Set before any await, not just once a helper tab actually opens: the
+  // guard above must also catch a second click landing during the
+  // permissions.query()/direct-getUserMedia awaits below, before any tab
+  // exists yet — otherwise a fast double-click could open two helper tabs.
+  state.micPermissionWaiting = true;
+  try {
+    const permissionState = await queryMicrophonePermission(navigator.permissions);
+    const action = decideMicPermissionAction(permissionState);
+
+    if (action === "explain-denied") {
+      setText("microphoneStatus", "ブロック中");
+      logger.error("マイクがブロックされています。chrome://settings/content/microphone でこの拡張機能を「許可」に変更してから、もう一度「更新・許可」を押してください");
+      return false;
+    }
+
+    if (action === "request-direct") {
+      try {
+        await recognizer.requestPermission(elements.microphoneSelect.value || "");
+        setText("microphoneStatus", "許可済み");
+        return true;
+      } catch (error) {
+        if (!shouldOpenHelperAfterFailure({ permissionState, errorName: error?.name })) throw error;
+        // Falls through to the helper-tab flow below.
+      }
+    }
+
+    const helperUrl = chrome.runtime.getURL("src/permission/mic-permission.html");
+    state.micHelperWindow = window.open(helperUrl);
+    if (!state.micHelperWindow) {
+      logger.error("マイク許可用のタブを開けませんでした。もう一度「更新・許可」を押してください");
+      return false;
+    }
+
+    setText("microphoneStatus", "許可待ち（別タブ）");
+    logger.info("マイク許可用のタブを開きました。表示されるダイアログで「許可」を選んでください");
+
+    const result = await awaitHelperCompletion({
+      isClosed: () => state.micHelperWindow?.closed === true,
+      subscribe: subscribeMicPermissionResult,
+    });
+
+    if (result.outcome === "closed") {
+      // Race fallback: the helper posts its result and only then
+      // self-closes, so a message normally wins, but re-check once in case
+      // the tab was closed exactly as the grant landed.
+      if ((await queryMicrophonePermission(navigator.permissions)) === "granted") {
+        setText("microphoneStatus", "許可済み");
+        return true;
+      }
+      setText("microphoneStatus", "未許可");
+      logger.warn("マイク許可用のタブが閉じられました。許可されていません");
+      return false;
+    }
+
+    if (result.outcome === "denied") {
+      // A dismissed prompt (user closed the dialog without choosing) also
+      // rejects with NotAllowedError but leaves the origin permission in
+      // "prompt", not "denied" — re-check so that case isn't mislabeled as
+      // a hard block with settings instructions that don't actually apply.
+      if ((await queryMicrophonePermission(navigator.permissions)) === "denied") {
+        setText("microphoneStatus", "ブロック中");
+        logger.error("マイクがブロックされています。chrome://settings/content/microphone でこの拡張機能を「許可」に変更してから、もう一度「更新・許可」を押してください");
+      } else {
+        setText("microphoneStatus", "未許可");
+        logger.warn("マイクの許可が完了しませんでした。もう一度「更新・許可」を押すか、許可用タブの「もう一度許可を要求」を押してください");
+      }
+      return false;
+    }
+
+    // result.outcome === "granted": the origin permission is granted now,
+    // so this retry in the side panel succeeds silently (no second prompt).
+    await recognizer.requestPermission(elements.microphoneSelect.value || "");
+    setText("microphoneStatus", "許可済み");
+    logger.info("マイクを許可しました");
+    return true;
+  } finally {
+    state.micPermissionWaiting = false;
+    state.micHelperWindow = null;
+  }
+}
+
 async function refreshMicrophones({ requestPermission = false } = {}) {
   const recognizer = state.recognizer ?? createRecognizer(state.settings);
   if (requestPermission) {
-    await recognizer.requestPermission(elements.microphoneSelect.value || "");
-    setText("microphoneStatus", "許可済み");
+    await ensureMicrophonePermission(recognizer);
   }
   const devices = await recognizer.listMicrophones();
   const selected = state.settings?.microphoneDeviceId || elements.microphoneSelect.value;
@@ -355,6 +515,22 @@ elements.connectObsButton.addEventListener("click", () => {
 elements.testCaptionButton.addEventListener("click", () => { void sendTestCaption(); });
 elements.saveSettingsButton.addEventListener("click", () => {
   void persistSettings().catch((error) => logger.error(error.message));
+});
+elements.obsPasswordPersistInput.addEventListener("change", () => {
+  // Persists immediately in both directions, rather than waiting for
+  // "設定を保存": checking the box is itself the user's explicit consent to
+  // start storing the password on disk ("チェックマークを入れると保存され
+  // る"), and unchecking it must delete the on-disk copy right away so the
+  // settings flag and the actual chrome.storage.local mirror never drift
+  // apart (see docs/HANDOFF.md 6, item 2).
+  const persisting = elements.obsPasswordPersistInput.checked;
+  void persistSettings()
+    .then(() => {
+      logger.info(persisting
+        ? "OBSパスワードをこのデバイスに保存しました"
+        : "保存済みのOBSパスワードをこのデバイスから削除しました");
+    })
+    .catch((error) => logger.error(error.message));
 });
 elements.startButton.addEventListener("click", () => { void startCaptions(); });
 elements.stopButton.addEventListener("click", () => { void stopCaptions(); });
