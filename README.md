@@ -30,6 +30,9 @@
 - 選択した言語ペアがChrome Translator APIで利用できるかを、開始前にその場で表示（利用可能／要ダウンロード／利用不可など。目安表示であり開始ボタンは無効化しない）
 - 認識ロケールからTranslator API用言語タグへの正規化
 - サイドパネルUI自体の表示言語をChromeの表示言語に自動追従（`chrome.i18n`、日本語・英語）
+- 認識モード選択（`command` / `dictation` / `conversation`）。既定は連続発話向けの`conversation`（Chromeの既定は短い指示向けの`command`）
+- 自動句読点補完（`unspokenPunctuation`、既定ON）
+- 認識原文（翻訳前）へのNFKC正規化と固有名詞置換。聞き間違えやすい単語を翻訳前に補正できる
 - 長い発話は確定前でも`interimFlushChars`文字ごとに区切って先に翻訳（既定40、0で無効）
 - 長い確定発話を句読点優先で短く区切ってから順番に翻訳
 - Chrome Translator APIの利用可否確認、初回ダウンロード進捗、翻訳
@@ -83,6 +86,8 @@ OBSパスワードは既定でChromeセッション内だけに保持し、Chrom
 - 拡張UI自体の表示言語はChromeの表示言語（`chrome://settings/languages`）に自動追従します。拡張内に言語切り替えUIはなく、切り替えの反映にはChromeの再起動が必要な場合があります。
 - `maxCaptionChars=72`、`segmentIntervalMs=1500`、`interimFlushChars=40`は暫定値です。CEA-608/Twitch実機表示を確認して調整します。
 - `interimFlushChars`による途中確定は低遅延と引き換えの精度トレードオフです。確定前の文で区切るため、Chrome側の認識訂正が起きると区切り付近の訳がまれに不自然・重複することがあります。
+- 認識モードと自動句読点はChrome 138以降の拡張属性で、未対応バージョンでは無視されます。対応有無はサイドパネルの開始時の挙動で確認してください。
+- 固有名詞置換は英訳後の字幕と認識原文（翻訳前）の両方に適用されます。翻訳後専用の置換を意図する場合は、認識原文にマッチしない表記（英字のみなど）を使ってください。
 - Chrome Translator APIの初回モデル取得にはユーザー操作とネットワーク接続が必要です。
 - TwitchのVODへ字幕が残るかは未確認です。
 - Windows x64を第一対象とし、macOSは未検証です。

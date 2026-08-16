@@ -1,5 +1,17 @@
+export const RECOGNITION_QUALITIES = Object.freeze(["command", "dictation", "conversation"]);
+
 export const DEFAULT_SETTINGS = Object.freeze({
   recognitionLanguage: "ja-JP",
+  // Chrome's SpeechRecognition defaults to "command" (tuned for short
+  // instructions). Captioning continuous speech is much closer to
+  // conversation/dictation, so the extension defaults to the stronger mode
+  // and lets the user step back down. Older Chrome builds expose no
+  // `quality` attribute and simply ignore this setting.
+  recognitionQuality: "conversation",
+  // Chrome can insert sentence punctuation that was never spoken; that
+  // makes transcripts (and their translations) much more readable as
+  // captions. Skipped on Chrome builds without `unspokenPunctuation`.
+  unspokenPunctuation: true,
   targetLanguage: "en",
   microphoneDeviceId: "",
   obsHost: "127.0.0.1",
@@ -63,6 +75,10 @@ export function normalizeSettings(value = {}) {
   return {
     ...DEFAULT_SETTINGS,
     recognitionLanguage: String(value.recognitionLanguage || DEFAULT_SETTINGS.recognitionLanguage),
+    recognitionQuality: RECOGNITION_QUALITIES.includes(String(value.recognitionQuality))
+      ? String(value.recognitionQuality)
+      : DEFAULT_SETTINGS.recognitionQuality,
+    unspokenPunctuation: value.unspokenPunctuation !== false,
     targetLanguage: String(value.targetLanguage || DEFAULT_SETTINGS.targetLanguage),
     microphoneDeviceId: String(value.microphoneDeviceId || ""),
     obsHost: normalizeLocalObsHost(value.obsHost || DEFAULT_SETTINGS.obsHost),
