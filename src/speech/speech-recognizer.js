@@ -12,6 +12,8 @@ const FATAL_ERRORS = new Set(["not-allowed", "service-not-allowed", "language-no
 export class SpeechRecognizer {
   constructor({
     lang = "ja-JP",
+    quality = "conversation",
+    unspokenPunctuation = true,
     globalScope = globalThis,
     mediaDevices = globalThis.navigator?.mediaDevices,
     onInterim = () => {},
@@ -20,6 +22,8 @@ export class SpeechRecognizer {
     onError = () => {},
   } = {}) {
     this.lang = lang;
+    this.quality = quality;
+    this.unspokenPunctuation = unspokenPunctuation;
     this.globalScope = globalScope;
     this.mediaDevices = mediaDevices;
     this.onInterim = onInterim;
@@ -37,10 +41,13 @@ export class SpeechRecognizer {
   }
 
   probe() {
+    const prototype = recognitionConstructor(this.globalScope)?.prototype ?? null;
     return {
       speechRecognition: Boolean(recognitionConstructor(this.globalScope)),
       mediaDevices: Boolean(this.mediaDevices?.getUserMedia && this.mediaDevices?.enumerateDevices),
-      localRecognitionProperty: Boolean(recognitionConstructor(this.globalScope)?.prototype && "processLocally" in recognitionConstructor(this.globalScope).prototype),
+      localRecognitionProperty: Boolean(prototype && "processLocally" in prototype),
+      quality: Boolean(prototype && "quality" in prototype),
+      unspokenPunctuation: Boolean(prototype && "unspokenPunctuation" in prototype),
     };
   }
 
@@ -77,7 +84,11 @@ export class SpeechRecognizer {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: false,
+          // Gain normalization and a single channel give the recognition
+          // service a clean, stable input; disabling AGC leaves quiet or
+          // level-shifting mics hard to hear.
+          autoGainControl: true,
+          channelCount: 1,
           ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
         },
       });
@@ -91,6 +102,16 @@ export class SpeechRecognizer {
     this.recognition.lang = this.lang;
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
+    // Chrome 138+ exposes a recognition quality mode (command/dictation/
+    // conversation) and automatic unspoken-punctuation insertion. Both are
+    // feature-flagged in some versions, so probe the instance and skip what
+    // the running Chrome doesn't expose (see docs/HANDOFF.md 9.12).
+    if (this.quality && "quality" in this.recognition) {
+      this.recognition.quality = this.quality;
+    }
+    if (this.unspokenPunctuation && "unspokenPunctuation" in this.recognition) {
+      this.recognition.unspokenPunctuation = true;
+    }
 
     this.recognition.onstart = () => {
       this.active = true;

@@ -12,6 +12,7 @@ import {
 } from "../permission/mic-permission-flow.js";
 import { InterimCommitter } from "../speech/interim-committer.js";
 import { SpeechRecognizer } from "../speech/speech-recognizer.js";
+import { cleanTranscript } from "../speech/transcript-cleaner.js";
 import { ChromeTranslator, queryTranslatorAvailability } from "../translation/chrome-translator.js";
 import { targetAllowsCjkText, toTranslatorLanguageTag } from "../translation/language-tags.js";
 import {
@@ -44,6 +45,7 @@ const elements = Object.fromEntries([
   "microphoneSelect", "refreshMicrophonesButton",
   "recognitionLanguageSelect", "recognitionLanguageCustomInput", "targetLanguageSelect", "targetLanguageCustomInput",
   "swapLanguagesButton", "pairAvailability",
+  "recognitionQualitySelect", "unspokenPunctuationInput",
   "obsHostInput", "obsPortInput", "obsPasswordInput", "obsPasswordPersistInput", "obsMicrophoneInputName",
   "connectObsButton", "testCaptionButton", "maxPendingInput", "maxAgeInput", "maxCaptionCharsInput", "segmentIntervalInput", "interimFlushCharsInput", "replacementsInput",
   "saveSettingsButton", "interimPreview", "japanesePreview", "englishPreview", "startButton", "stopButton", "clearLogButton", "eventLog",
@@ -196,6 +198,8 @@ const debouncedUpdatePairAvailability = debounce(() => { void updatePairAvailabi
 function readFormSettings() {
   return normalizeSettings({
     recognitionLanguage: readRecognitionLanguage(),
+    recognitionQuality: elements.recognitionQualitySelect.value,
+    unspokenPunctuation: elements.unspokenPunctuationInput.checked,
     targetLanguage: readTargetLanguage(),
     microphoneDeviceId: elements.microphoneSelect.value,
     obsHost: elements.obsHostInput.value,
@@ -215,6 +219,8 @@ function readFormSettings() {
 function populateSettings(settings) {
   setLanguageControl(elements.recognitionLanguageSelect, elements.recognitionLanguageCustomInput, settings.recognitionLanguage, recognitionLanguageOptions());
   setLanguageControl(elements.targetLanguageSelect, elements.targetLanguageCustomInput, settings.targetLanguage, targetLanguageOptions());
+  elements.recognitionQualitySelect.value = settings.recognitionQuality;
+  elements.unspokenPunctuationInput.checked = settings.unspokenPunctuation;
   elements.obsHostInput.value = settings.obsHost;
   elements.obsPortInput.value = settings.obsPort;
   elements.obsPasswordPersistInput.checked = settings.obsPasswordPersistLocal;
@@ -263,24 +269,28 @@ function createRecognizer(settings) {
   state.interimCommitter = new InterimCommitter({ flushChars: settings.interimFlushChars });
   state.recognizer = new SpeechRecognizer({
     lang: settings.recognitionLanguage,
+    quality: settings.recognitionQuality,
+    unspokenPunctuation: settings.unspokenPunctuation,
     onInterim: (text) => {
-      elements.interimPreview.textContent = text || "—";
+      const cleaned = cleanTranscript(text, settings.replacements);
+      elements.interimPreview.textContent = cleaned || "—";
       if (!state.running) return;
       // Flushes a long in-progress utterance to translation before Chrome
       // finalizes it, so translation doesn't wait for a whole run-on
       // sentence (see docs/HANDOFF.md 9.10). No-op while interimFlushChars
       // is 0 or the utterance hasn't crossed the threshold yet.
-      for (const chunk of state.interimCommitter.update(text)) {
+      for (const chunk of state.interimCommitter.update(cleaned)) {
         state.queue?.submit({ text: chunk, createdAt: Date.now() });
         logger.info(t("log_interimFlushed", [String(chunk.length)]));
       }
     },
     onFinal: (text) => {
-      elements.japanesePreview.textContent = text;
+      const cleaned = cleanTranscript(text, settings.replacements);
+      elements.japanesePreview.textContent = cleaned || "—";
       if (!state.running) return;
       // Only the part beyond whatever interim flushing already committed —
       // see InterimCommitter.finalize().
-      for (const chunk of state.interimCommitter.finalize(text)) {
+      for (const chunk of state.interimCommitter.finalize(cleaned)) {
         state.queue?.submit({ text: chunk, createdAt: Date.now() });
       }
     },

@@ -113,6 +113,7 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 | `src/sidepanel/sidepanel.js` | UI、各サービスの生成、開始・停止、状態表示を統合するComposition Root |
 | `src/speech/speech-recognizer.js` | マイク取得、入力一覧、SpeechRecognition、終了後の再開 |
 | `src/speech/interim-committer.js` | 長い発話を確定前に区切って翻訳へ先行投入する状態機械（純粋関数） |
+| `src/speech/transcript-cleaner.js` | 認識原文のNFKC正規化と固有名詞置換（翻訳前補正、純粋関数） |
 | `src/permission/mic-permission-flow.js` | Side Panelのマイク許可プロンプト問題を回避する判断ロジック（純粋関数） |
 | `src/permission/mic-permission.html` / `mic-permission.js` | マイク許可を通常タブとして要求する独立ページ |
 | `src/translation/chrome-translator.js` | Translator APIの可用性確認、初期化、ダウンロード進捗、翻訳 |
@@ -139,7 +140,9 @@ MVPでは、サイドパネルがComposition Rootです。マイク、音声認�
 
 | 設定 | 既定値 | 備考 |
 |---|---:|---|
-| `recognitionLanguage` | `ja-JP` | 現UIでは固定 |
+| `recognitionLanguage` | `ja-JP` | select式（一覧外は手入力） |
+| `recognitionQuality` | `conversation` | `command`/`dictation`/`conversation`。Chromeの既定は`command`（短い指示向け）。未対応Chromeでは無視 |
+| `unspokenPunctuation` | `true` | Chromeが発話に含まれない句読点を補完。未対応Chromeでは無視 |
 | `targetLanguage` | `en` | 現UIでは固定 |
 | `microphoneDeviceId` | 空 | 空なら既定マイク |
 | `obsHost` | `127.0.0.1` | `127.0.0.1`または`localhost`のみ許可 |
@@ -351,6 +354,25 @@ issue #6で「認識言語」「翻訳先」のテキスト入力+`<datalist>`�
 - `chrome.i18n`は追加の権限を必要としない。`tests/manifest.test.js`の`permissions`最小集合アサーションは変更していない。
 - `src/permission/mic-permission-flow.js`のような`chrome.*`非依存の純粋モジュールには、文字列そのものではなく`{ key, substitutions }`を返させ、実際の`t(key, substitutions)`呼び出しはDOM側（`mic-permission.js`）に置いている（`helperErrorMessage()`）。Nodeテストがchromeなしで動く前提を崩さないため。
 - `tests/i18n-messages.test.js`が en/ja のキー集合一致・プレースホルダ整合・`src/`配下で参照されているキーが両カタログに存在することを機械的に検証する。新しい文言を追加する際は、両方のロケールファイルに同じキーを追加すること（このテストが片方だけの追加を検出する）。
+
+### 9.12 音声認識の品質モード・自動句読点・翻訳前補正（対応済み・実機挙動は未確認）
+
+ユーザー報告: 音声認識自体が弱い。
+
+原因の整理: 認識エンジンはChromeのWeb Speech APIで、Chrome 151時点の既定`quality`は短い指示向けの`command`（`SpeechRecognition.prototype.quality`、Chromium IDLでは`SpeechRecognitionQuality` enum）。連続した長い発話を字幕にする用途には向いていない設定が既定になっている。また`getUserMedia`側は`autoGainControl: false`だったため、音量が安定しないマイク入力で認識精度が落ち得る。加えて置換（固有名詞補正）が英訳後にしか適用されておらず、認識の聞き間違い自体は補正できなかった。
+
+対応（実測済みのChrome 151挙動を根拠に実装）:
+
+- 認識モード設定`recognitionQuality`（`command`/`dictation`/`conversation`）を追加し、既定を`conversation`に変更。`speech-recognizer.js`が`"quality" in recognition`を確認してから`recognition.quality`へ設定する。未対応のChromeでは属性ごと存在しないため無視され、従来挙動（`command`）のまま動く。enum値はChromium IDLの`SpeechRecognitionQuality`（command/dictation/conversation）と一致させ、`src/shared/contracts.js`の`RECOGNITION_QUALITIES`で正規化する。
+- 自動句読点設定`unspokenPunctuation`（既定ON）を追加。同様に属性の存在を確認してから`recognition.unspokenPunctuation = true`を設定する。Chromiumの`WebSpeechUnspokenPunctuation`フラグ配下の属性。
+- 音声入力は`autoGainControl: true`、`channelCount: 1`へ変更（従来`autoGainControl: false`）。認識サービスへ安定した音量・単チャンネルの入力を渡すための変更。
+- `src/speech/transcript-cleaner.js`の`cleanTranscript()`で、認識原文（interim/finalの両方）へNFKC正規化とユーザー設定の`replacements`を翻訳前に適用。InterimCommitterへ渡すテキストも正規化済みに統一しているため、途中確定のprefix整合は従来どおり成立する。置換は引き続き英訳後（`CaptionPolicy`）にも適用される。
+
+未確認・注意点（Phase 0で記録する項目）:
+
+- `quality`モードごとの精度・遅延差は実機（Chrome 138以降）で確認する。`command`に戻すことで従来挙動へ完全に戻せる。
+- `unspokenPunctuation`が付与する句読点（`.`、`,`等）は翻訳文にも反映される。Twitch/CEA-608表示上の違和感がないか実機で確認する。
+- Chrome 151のヘッドレス実測では`SpeechRecognition.available({langs})`が未解決になり、`processLocally`（端末内認識）と`phrases`（語彙ヒント、`WebSpeechRecognitionContext`フラグ配下で`SpeechRecognitionPhrase`コンストラクタは未公開）はこの拡張ではまだ使っていない。将来Chromeが公開したら、`phrases`にチャンネル固有の固有名詞を渡す拡張が考えられる。
 
 ## 10. 次の担当者が行う作業順
 

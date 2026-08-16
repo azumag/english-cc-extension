@@ -16,10 +16,23 @@ class FakeRecognition {
     this.startCount = 0;
     this.aborted = false;
     this.stopped = false;
+    this.quality = undefined;
+    this.unspokenPunctuation = undefined;
   }
   start() { this.startCount += 1; }
   stop() { this.stopped = true; }
   abort() { this.aborted = true; }
+}
+
+// Simulates an older Chrome whose SpeechRecognition exposes neither the
+// `quality` nor the `unspokenPunctuation` attribute.
+class LegacyFakeRecognition {
+  constructor() {
+    this.startCount = 0;
+  }
+  start() { this.startCount += 1; }
+  stop() {}
+  abort() {}
 }
 
 function createHarness() {
@@ -103,4 +116,49 @@ test("transient errors keep retrying with a capped exponential backoff", async (
   await recognizer.stop();
   t.mock.timers.tick(6000);
   assert.equal(recognition.startCount, 1 + expectedDelays.length, "stop() must cancel any pending restart");
+});
+
+test("applies quality mode and unspoken punctuation when Chrome exposes them", async () => {
+  const { globalScope, mediaDevices } = createHarness();
+  const recognizer = new SpeechRecognizer({
+    globalScope,
+    mediaDevices,
+    quality: "conversation",
+    unspokenPunctuation: true,
+  });
+
+  await recognizer.start();
+  assert.equal(recognizer.recognition.quality, "conversation");
+  assert.equal(recognizer.recognition.unspokenPunctuation, true);
+  await recognizer.stop();
+});
+
+test("ignores quality and punctuation settings on Chrome builds without them", async () => {
+  const globalScope = { SpeechRecognition: LegacyFakeRecognition };
+  const mediaDevices = { async getUserMedia() { return createFakeStream(); } };
+  const recognizer = new SpeechRecognizer({
+    globalScope,
+    mediaDevices,
+    quality: "dictation",
+    unspokenPunctuation: true,
+  });
+
+  await recognizer.start();
+  assert.equal(recognizer.recognition.startCount, 1, "start() must succeed on legacy Chrome");
+  await recognizer.stop();
+});
+
+test("requests gain-normalized mono audio for recognition", async () => {
+  let captured = null;
+  const mediaDevices = {
+    async getUserMedia(constraints) { captured = constraints; return createFakeStream(); },
+  };
+  const recognizer = new SpeechRecognizer({ globalScope: { SpeechRecognition: FakeRecognition }, mediaDevices });
+
+  await recognizer.start();
+  assert.equal(captured.audio.autoGainControl, true, "AGC must stay on so quiet mics are audible");
+  assert.equal(captured.audio.channelCount, 1, "recognition wants a single channel");
+  assert.equal(captured.audio.echoCancellation, true);
+  assert.equal(captured.audio.noiseSuppression, true);
+  await recognizer.stop();
 });

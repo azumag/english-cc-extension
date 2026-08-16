@@ -54,6 +54,22 @@
 
       <div class="two-columns">
         <label>
+          <span data-i18n="ui_recognitionQualityLabel">Recognition mode</span>
+          <select id="recognitionQualitySelect">
+            <option value="command" data-i18n="ui_qualityCommand">Command (short phrases)</option>
+            <option value="dictation" data-i18n="ui_qualityDictation">Dictation (long-form)</option>
+            <option value="conversation" data-i18n="ui_qualityConversation">Conversation (continuous speech)</option>
+          </select>
+        </label>
+        <label class="checkbox-field">
+          <input id="unspokenPunctuationInput" type="checkbox">
+          <span data-i18n="ui_unspokenPunctuationLabel">Insert punctuation automatically</span>
+        </label>
+      </div>
+      <small data-i18n="ui_recognitionQualityHint">Chrome's default mode is tuned for short commands. For captions, "Conversation" or "Dictation" target longer speech; older Chrome builds ignore this.</small>
+
+      <div class="two-columns">
+        <label>
           <span data-i18n="ui_obsHostLabel">OBS host</span>
           <select id="obsHostInput">
             <option value="127.0.0.1">127.0.0.1</option>
@@ -114,6 +130,7 @@
       <label>
         <span data-i18n="ui_replacementsLabel">Term replacements (JSON)</span>
         <textarea id="replacementsInput" rows="4" spellcheck="false" placeholder='{"Palantia":"Palantir"}'></textarea>
+        <small data-i18n="ui_replacementsHint">Replacements also apply to the recognized source text before translation, so you can correct words Chrome often mishears.</small>
       </label>
       <button id="saveSettingsButton" type="button" class="secondary" data-i18n="ui_saveSettingsButton">Save settings</button>
     </section>
